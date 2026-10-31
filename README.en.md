@@ -52,6 +52,10 @@ This plugin turns the spec into a reusable asset:
 You do not need to know the SolidWorks API. You need to know what the part is, how big it is, and
 how many holes it has.
 
+<p align="center">
+  <img src="docs/images/flow.png" alt="Pick a template, fill the numbers, copy into the chat" width="860">
+</p>
+
 ### 1. Install
 
 ```js
@@ -61,6 +65,10 @@ plugin_manager({ action: 'install_bundle', target: '<absolute path to this repo>
 Refresh the page. A **SolidWorks Copilot** icon appears in the sidebar, and a compact bar appears
 under the composer.
 
+<p align="center">
+  <img src="docs/images/dock.png" alt="Compact bar under the composer" width="760">
+</p>
+
 ### 2. Pick a template
 
 Click the sidebar icon — the **Templates** tab is already open. The 16 templates are grouped by
@@ -69,11 +77,16 @@ card shows only two things: **difficulty** (easy · medium · advanced) and **ca
 
 Not sure? Take the first one, *Mounting plate / bracket*.
 
+<p align="center">
+  <img src="docs/images/panel.png" alt="Sidebar workspace: pick on the left, fill and generate on the right" width="880">
+</p>
+
 ### 3. Fill, generate, copy
 
 1. Write one line about what you want (optional — the template already carries the standard wording).
 2. Fill the numbers you know. Leave the rest blank; the agent will ask.
-3. Press **Generate prompt**.
+3. Press **Generate &amp; copy** — one click; **Generate prompt** only fills the preview, **Copy**
+   only copies what is already there.
 
 You get a complete spec: goal, parameter table, execution steps, acceptance evidence, hard rules,
 prohibitions.
@@ -88,6 +101,10 @@ generate a gate list. Paste it and make the agent answer line by line. *"It's do
 evidence is.
 
 ### No DSH? Use the CLI
+
+<p align="center">
+  <img src="docs/images/cli.png" alt="CLI: templates / prompt / install" width="820">
+</p>
 
 ```bash
 node bin/swas.mjs templates

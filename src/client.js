@@ -36,6 +36,7 @@ window.__ModuleLoader__.load({
       'common.search': '搜索',
       'common.all': '全部',
       'common.generate': '生成',
+      'common.oneClick': '一键生成并复制',
       'common.insert': '填入输入框',
       'common.copy': '复制',
       'common.copied': '已复制',
@@ -99,6 +100,7 @@ window.__ModuleLoader__.load({
       'common.search': 'Search',
       'common.all': 'All',
       'common.generate': 'Generate',
+      'common.oneClick': 'Generate & copy',
       'common.insert': 'Fill composer',
       'common.copy': 'Copy',
       'common.copied': 'Copied',
@@ -620,7 +622,7 @@ window.__ModuleLoader__.load({
     }
 
     function TemplateDetail(props) {
-      const { template, t, values, setValue, onGenerate, onInsert, onBack } = props;
+      const { template, t, values, setValue, onGenerate, onOneClick, onInsert, canInsert, onBack } = props;
       const params = template.params || [];
       return el(
         'div',
@@ -658,8 +660,9 @@ window.__ModuleLoader__.load({
         el(
           'div',
           { style: Object.assign({}, styles.row, { marginTop: 8 }) },
-          el(Btn, { kind: 'primary', label: t('common.generate'), onClick: onGenerate }),
-          el(Btn, { label: t('common.insert'), onClick: onInsert }),
+          el(Btn, { kind: 'primary', label: t('common.oneClick'), onClick: onOneClick }),
+          el(Btn, { label: t('common.generate'), onClick: onGenerate }),
+          canInsert ? el(Btn, { label: t('common.insert'), onClick: onInsert }) : null,
         ),
       );
     }
@@ -736,7 +739,13 @@ window.__ModuleLoader__.load({
               const text = generate(active);
               setPreview(text);
             },
+            onOneClick: () => {
+              const text = generate(active);
+              setPreview(text);
+              props.copy(text);
+            },
             onInsert: () => props.onInsert(generate(active)),
+            canInsert: props.mode === 'dock',
             onBack: () => {
               setActiveId(null);
               props.setPreview('');
@@ -1248,7 +1257,7 @@ window.__ModuleLoader__.load({
           'div',
           { style: styles.pageBody },
           tab === 'templates'
-            ? el(TemplatesTab, Object.assign({ preview: preview, setPreview: setPreview }, shared))
+            ? el(TemplatesTab, Object.assign({ preview: preview, setPreview: setPreview, mode: 'page' }, shared))
             : null,
           tab === 'prompt' ? el(PromptTab, shared) : null,
           tab === 'plan' ? el(PlanTab, shared) : null,
@@ -1379,7 +1388,9 @@ window.__ModuleLoader__.load({
             'div',
             { style: styles.body },
             flashMessage !== '' ? el('div', { style: Object.assign({}, styles.meta, styles.flash) }, flashMessage) : null,
-            tab === 'templates' ? el(TemplatesTab, Object.assign({ preview: preview, setPreview: setPreview }, shared)) : null,
+            tab === 'templates'
+              ? el(TemplatesTab, Object.assign({ preview: preview, setPreview: setPreview, mode: 'dock' }, shared))
+              : null,
             tab === 'prompt' ? el(PromptTab, shared) : null,
             tab === 'plan' ? el(PlanTab, shared) : null,
             tab === 'tips' ? el(TipsTab, shared) : null,

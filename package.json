@@ -32,7 +32,10 @@
     "NOTICE",
     "licenses/*.txt",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "docs/images/*.png",
+    "scripts/*.mjs",
+    "scripts/*.py"
   ],
   "dsh": {
     "bundle": {
