@@ -31,7 +31,8 @@
     "LICENSE",
     "NOTICE",
     "licenses/*.txt",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ],
   "dsh": {
     "bundle": {
