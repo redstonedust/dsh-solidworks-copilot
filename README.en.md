@@ -122,7 +122,7 @@ No dependencies, Node ≥ 20.
 
 | Layer | What it gives you |
 |---|---|
-| **UI** | Sidebar workspace (6 tabs) + ambient bar under the composer, both backed by the same knowledge base |
+| **UI** | Sidebar workspace (7 tabs, including **Deploy**) + ambient bar under the composer, both backed by the same knowledge base |
 | **7 tools** | `swas_templates` · `swas_prompt` · `swas_plan` · `swas_tips` · `swas_gate` · `swas_deploy` · `swas_status` |
 | **2 agent presets** | `swas-cad` (writable modelling) · `swas-review` (read-only delivery review) |
 | **Content** | 16 UI templates · 5 spec templates · 60 tips · 8 delivery gates · 9-phase design outline · 18 routing rules |
@@ -171,6 +171,25 @@ node bin/swas.mjs --help
 
 `autoFetch` is **off by default** on purpose: installing a plugin should not silently hit the
 network and write into your home directory.
+
+### Deploying the skill
+
+The panel has a **Deploy** tab: pick a client, press **Preview** (prints the plan, writes nothing),
+then **Deploy**. Progress and per-client state are shown in the page, so you never need a terminal.
+
+It is backed by two loopback routes served by the plugin:
+
+| Route | Purpose | Guard |
+|---|---|---|
+| `GET /swas/status` | client states + pinned ref | same-origin panel requests only |
+| `POST /swas/deploy` | run the deployment (`dryRun` defaults to `true`) | same as above |
+
+Both require `sec-fetch-site: same-origin` and `x-swas-client: ui`; without them the route answers
+`403` (verified: bare `curl` → 403, panel headers → 200).
+
+Whatever the entry point, the same rules apply: a missing `skills/` directory is skipped (never
+created), an existing install with `.provenance.json` is skipped, an unmanaged directory is skipped,
+and only an explicit `force` renames the old directory to `<dir>.bak-<timestamp>`.
 
 ---
 

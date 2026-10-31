@@ -71,6 +71,8 @@ plugin_manager({ action: 'install_bundle', target: '<本仓库绝对路径>' })
 
 然后**刷新页面**。会出现两个入口：左侧栏的 **SolidWorks 副驾** 图标，以及输入框下方的一条小卡。
 
+还没有装技能的话，打开面板切到 **技能部署** 页：选客户端 → 点 **预演** 看计划 → 点 **确认部署**。目录已存在会被跳过，不会覆盖你手动装的副本。
+
 ### 第 2 步：打开面板
 
 点侧边栏图标就是整页工作台；不想离开对话，就直接用输入框下方那条：
@@ -135,7 +137,7 @@ node bin/swas.mjs install --target codex --dry-run
 
 | 层 | 内容 |
 |---|---|
-| **界面** | 侧边栏整页（6 个标签页）+ 输入框下方小卡，共用同一份知识库 |
+| **界面** | 侧边栏整页（7 个标签页，含「技能部署」）+ 输入框下方小卡，共用同一份知识库 |
 | **7 个工具** | `swas_templates` · `swas_prompt` · `swas_plan` · `swas_tips` · `swas_gate` · `swas_deploy` · `swas_status` |
 | **2 个 Agent 模式** | `swas-cad`（可写建模）· `swas-review`（只读交付复核） |
 | **内容** | 16 个 UI 模板 · 5 张需求书模板 · 60 条技巧 · 8 组门禁 · 9 段设计思路 · 18 条任务路由 |
@@ -182,22 +184,34 @@ node bin/swas.mjs --help
 
 `autoFetch` 默认**关闭**是有意为之：装个插件不应该顺手联网、往你的 home 目录里写东西。
 
-### 技能部署：什么时候才会写盘
+### 技能部署（面板 / 工具 / CLI 三条入口）
 
-结论先给：**默认不会**。装插件、开面板、生成提示词，都不会动你的 `skills/` 目录；只有下面三种触发方式之一发生，才可能落盘。
+面板里有一个 **技能部署** 标签页：选客户端 → **预演**（只打印计划）→ **确认部署**（真正落盘），日志和每个客户端的状态直接显示在页面上，不需要切终端。
 
-| 触发方式 | 发生在什么时候 | 默认是否写盘 | 说明 |
-|---|---|---|---|
-| **装载插件**（`autoFetch: true`） | DSH 启动、插件 `apply()` 之后的一轮事件循环 | 是（幂等） | 只有显式把配置改成 `true` 才生效；失败只写日志，不影响 DSH 启动 |
-| **工具 `swas_deploy`** | 你在会话里调用它时 | **否**（`dryRun` 默认 `true`） | 必须显式传 `dryRun: false` 才真正落盘；`action: 'status'` 纯只读 |
-| **CLI `swas install`** | 你敲命令时 | 是 | 支持 `--dry-run`、`--target`、`--force`；`--dry-run` 时只打印计划 |
+它由宿主的两条本地路由支撑：
 
-三种方式共用同一套判断（`ensureSkill` / `installSkill`），顺序如下：
+| 路由 | 作用 | 保护 |
+|---|---|---|
+| `GET /swas/status` | 返回各客户端状态与钉死的 ref | 只接受面板发出的同源请求 |
+| `POST /swas/deploy` | 执行部署（`dryRun` 默认 `true`） | 同上 |
+
+两条路由都要求请求带 `sec-fetch-site: same-origin` 与 `x-swas-client: ui`，缺少任一直接 `403`（实测：裸 `curl` 403，带面板头 200）。
+
+三条入口的写盘时机：
+
+| 入口 | 怎么用 | 默认是否写盘 |
+|---|---|---|
+| **面板「技能部署」页** | 选 target → 预演 → 确认部署 | 预演不写；点「确认部署」才写 |
+| **工具 `swas_deploy`** | 会话里调用；`action: 'status'` 只读 | **否**（`dryRun` 默认 `true`，须显式 `dryRun: false`） |
+| **CLI `swas install`** | 终端执行 | 是（可加 `--dry-run` 只预演） |
+| **装载插件**（`autoFetch: true`） | DSH 启动、`apply()` 之后的一轮事件循环 | 仅在配置显式设为 `true` 时；失败只记日志 |
+
+四种方式共用同一套判断（`ensureSkill` / `installSkill`）：
 
 1. 客户端 `skills/` 目录不存在 → 跳过，不替你创建（`skip-no-skills-dir`）；
 2. 目标目录里有 `.provenance.json` → 视为本插件装过，跳过（`skip`）；
 3. 目标目录存在但没有 provenance（例如你手动 `git clone` 过）→ 跳过，**不覆盖**（`skip-unmanaged` / `skip-exists`）；
-4. 只有显式 `--force` 时，才会把旧目录改名成 `<dir>.bak-<时间戳>` 再装，从不删除。
+4. 只有显式 `force` / `--force` 时，才会把旧目录改名成 `<dir>.bak-<时间戳>` 再装，从不删除。
 
 打开「装载即补齐」：
 
@@ -207,9 +221,9 @@ config:
   autoFetchTarget: codex   # 支持逗号分隔，如 codex,claude
 ```
 
-装完之后可以用 `swas_deploy({ action: 'status' })` 查看每个客户端的状态（`installed-by-plugin` / `unmanaged` / `not-installed`）；成功安装会在目标目录写入 `.provenance.json`，记录上游 URL、请求的 ref、解析到的 commit 与抓取时间。
+成功安装会在目标目录写入 `.provenance.json`，记录上游 URL、请求的 ref、解析到的 commit 与抓取时间；面板与 `swas_deploy({ action: 'status' })` 都能看到每个客户端处于 `installed-by-plugin` / `unmanaged` / `not-installed`。
 
-> 本机当前状态：`codex` / `claude` / `agents` 三个目录都已存在但**不是**本插件装的（`unmanaged`），所以即使把 `autoFetch` 打开，也不会覆盖它们。
+> 本机当前状态：`codex` / `claude` / `agents` 三个目录都已存在但**不是**本插件装的（`unmanaged`），所以预演会显示 `skip-exists`——这是预期行为，插件不会覆盖你手动装的副本。
 
 ---
 
@@ -292,7 +306,7 @@ node scripts/import-content.mjs   # 调研 JSON（_sw_pack/）→ content/*.js�
 node scripts/build-client.mjs     # catalog.js + generate.js → client.js
 node scripts/build-presets.mjs    # prompts/*.md → presets/*.patch.yml
 node scripts/smoke.mjs            # 真 React SSR 渲染每个标签页 + 注册契约
-node scripts/selftest.mjs         # 桩 ctx：7 个工具全部正常/边界用例
+node scripts/selftest.mjs         # 桩 ctx：7 个工具 + 本地部署路由（403/200/404、预演）
 node scripts/check-readme.mjs     # README 自检：图片是否存在、目录锚点是否命中、语言互链
 python scripts/make-readme-images.py   # 重新生成 docs/images 里的示意图（需要 Pillow）
 ```

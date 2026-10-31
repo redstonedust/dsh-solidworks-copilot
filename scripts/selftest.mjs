@@ -15,8 +15,9 @@ function check(ok, message) {
   console.log(`${ok ? '✓' : '✗'} ${message}`);
 }
 
-// ── 桩 ctx：捕获注册，模拟 effect/get ─────────────────────────────
+// ── 桩 ctx：捕获注册，模拟 effect/get/inject ─────────────────────
 const registered = new Map();
+const routes = [];
 const ctx = {
   effect(fn) {
     return fn();
@@ -24,6 +25,15 @@ const ctx = {
   get(name) {
     if (name === 'clientModules') return { clientPath: () => undefined };
     return undefined;
+  },
+  inject(deps, callback) {
+    if (deps.includes('webServer')) {
+      callback({
+        effect: (fn) => fn(),
+        webServer: { register: (route) => { routes.push(route); return () => {}; } },
+      });
+    }
+    return () => {};
   },
   tools: {
     register(definition) {
@@ -39,6 +49,58 @@ check(registered.size === 7, `注册 7 个工具（实际 ${registered.size}：$
 for (const name of ['swas_templates', 'swas_prompt', 'swas_plan', 'swas_tips', 'swas_gate', 'swas_deploy', 'swas_status']) {
   check(registered.has(name), `存在工具 ${name}`);
 }
+check(routes.length === 1 && routes[0].path === '/swas', `注册本地部署路由（实际 ${routes.length} 条）`);
+
+/** 用假 req/res 直接调用本地路由，验证 403 / 200 / 404 与部署预演。 */
+function fakeReq({ method = 'GET', url, headers = {}, body = '' }) {
+  return {
+    method,
+    url,
+    headers,
+    on(event, callback) {
+      if (event === 'data' && body !== '') callback(body);
+      if (event === 'end') callback();
+      return this;
+    },
+    destroy() {},
+  };
+}
+function fakeRes() {
+  const res = { statusCode: 0, headers: {}, body: '' };
+  res.setHeader = (key, value) => {
+    res.headers[String(key).toLowerCase()] = value;
+  };
+  res.end = (chunk) => {
+    res.body = String(chunk ?? '');
+  };
+  return res;
+}
+const sameOrigin = { 'sec-fetch-site': 'same-origin', 'x-swas-client': 'ui' };
+
+if (routes.length === 1) {
+  const handler = routes[0].handler;
+  const forbidden = fakeRes();
+  handler(fakeReq({ url: '/swas/status' }), forbidden);
+  check(forbidden.statusCode === 403, '缺同源头 → 403');
+
+  const okStatus = fakeRes();
+  handler(fakeReq({ url: '/swas/status', headers: sameOrigin }), okStatus);
+  const statusBody = JSON.parse(okStatus.body || '{}');
+  check(okStatus.statusCode === 200 && Array.isArray(statusBody.clients), 'GET /swas/status 返回客户端列表');
+
+  const missing = fakeRes();
+  handler(fakeReq({ url: '/swas/nope', headers: sameOrigin }), missing);
+  check(missing.statusCode === 404, '未知路径 → 404');
+
+  const preview = fakeRes();
+  handler(
+    fakeReq({ method: 'POST', url: '/swas/deploy', headers: sameOrigin, body: JSON.stringify({ target: 'codex', dryRun: true }) }),
+    preview,
+  );
+  const previewBody = JSON.parse(preview.body || '{}');
+  check(preview.statusCode === 200 && previewBody.dryRun === true, 'POST /swas/deploy 默认预演且返回计划');
+}
+
 
 /** 调用一个工具并断言不抛、返回带 text 的对象。 */
 async function call(name, args) {

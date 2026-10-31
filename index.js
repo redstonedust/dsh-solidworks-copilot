@@ -1,12 +1,17 @@
 /**
  * SolidWorks 副驾 — Host 半。
  *
- * 注册 5 个 Agent 工具（与客户端面板共用同一份知识库与生成器）：
- *   swas_templates  模板预设 / 任务路由检索
+ * 注册 7 个 Agent 工具（与客户端面板共用同一份知识库与生成器）：
+ *   swas_templates  模板预设 / 任务路由 / 需求书模板
  *   swas_prompt     生成可直接粘贴的执行提示词
  *   swas_plan       九段式整体设计思路
  *   swas_tips       SolidWorks API 与工程技巧检索
  *   swas_gate       交付门禁与验收提示词
+ *   swas_deploy     技能部署（状态 / 安装）
+ *   swas_status     插件自检
+ *
+ * 另外提供两条面板用的本地 HTTP 路由（/swas/status、/swas/deploy），
+ * 让「技能部署」标签页能真正执行部署，而不只是显示说明。
  *
  * @module dsh-solidworks-copilot
  */
@@ -19,6 +24,72 @@ import { listTemplates as listSpecTemplates, renderTemplate as renderSpec } from
 
 /** 需要 tools 服务；缺失时插件保持不激活而不抛错。 */
 export const inject = ['tools'];
+
+/** 面板调用的本地路由前缀。 */
+const ROUTE_PREFIX = '/swas';
+
+/**
+ * 面板专用路由：同源 POST 才能触发，避免任何本地进程随意调用。
+ * 浏览器同源请求会带 sec-fetch-site: same-origin，curl/脚本默认不带。
+ */
+function createDeployHandler() {
+  return (req, res) => {
+    const send = (status, body) => {
+      res.statusCode = status;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      res.end(JSON.stringify(body));
+    };
+
+    const sameOrigin = String(req.headers['sec-fetch-site'] || '') === 'same-origin';
+    const fromUi = String(req.headers['x-swas-client'] || '') === 'ui';
+    if (!sameOrigin || !fromUi) return send(403, { ok: false, error: 'forbidden：只接受面板发出的同源请求' });
+
+    const url = new URL(req.url || '/', 'http://localhost');
+    if (url.pathname === `${ROUTE_PREFIX}/status` && req.method === 'GET') {
+      try {
+        return send(200, { ok: true, upstream: UPSTREAM, ref: DEFAULT_REF, clients: detectClients() });
+      } catch (error) {
+        return send(200, { ok: false, error: String(error && error.message ? error.message : error) });
+      }
+    }
+
+    if (url.pathname === `${ROUTE_PREFIX}/deploy` && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 8192) req.destroy();
+      });
+      req.on('end', () => {
+        let input = {};
+        try {
+          input = JSON.parse(body || '{}');
+        } catch {
+          return send(400, { ok: false, error: '请求体不是合法 JSON' });
+        }
+        const target = String(input.target || 'codex');
+        const dryRun = input.dryRun !== false; // 默认只预演
+        const logs = [];
+        try {
+          const results = installMany({
+            targets: [target],
+            ref: DEFAULT_REF,
+            force: input.force === true,
+            dryRun,
+            log: (line) => logs.push(line),
+          });
+          return send(200, { ok: true, dryRun, target, logs, results });
+        } catch (error) {
+          return send(200, { ok: false, dryRun, target, logs, error: String(error && error.message ? error.message : error) });
+        }
+      });
+      return undefined;
+    }
+
+    return send(404, { ok: false, error: 'not found' });
+  };
+}
+
 
 const OUTPUT = {
   schema: { type: 'object', additionalProperties: true },
@@ -445,6 +516,15 @@ export function apply(ctx, config = {}) {
   const disposers = buildToolDefinitions(ctx, config).map((definition) =>
     ctx.effect(() => ctx.tools.register(definition), `solidworks-copilot: ${definition.name}`),
   );
+  // 面板的「技能部署」页通过这两条路由真正执行部署；宿主没有 webServer 时静默跳过。
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['webServer'], (webCtx) => {
+      webCtx.effect(
+        () => webCtx.webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: createDeployHandler() }),
+        'solidworks-copilot: deploy route',
+      );
+    });
+  }
   let cancelled = false;
   if (config.autoFetch === true) {
     // 默认不自动部署；显式开启时放到下一轮事件循环，失败只影响部署，不影响 DSH 启动。

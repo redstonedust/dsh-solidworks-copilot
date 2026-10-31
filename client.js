@@ -227,6 +227,32 @@ window.__ModuleLoader__.load({
       'tab.modes': 'Pro modes',
     });
 
+    // 技能部署页文案（中英各一份，key 与 DeployTab 对应）
+    Object.assign(zh, {
+      'tab.deploy': '技能部署',
+      'deploy.hint': '把上游技能装到本机的 Agent 客户端。先点「预演」看计划，确认无误再点「确认部署」；目录已存在会被跳过，不会覆盖。',
+      'deploy.target': '装到',
+      'deploy.refresh': '刷新状态',
+      'deploy.preview': '预演（不落盘）',
+      'deploy.run': '确认部署',
+      'deploy.running': '执行中…',
+      'deploy.done': '部署完成，状态已刷新',
+      'deploy.previewDone': '预演完成：没有改动任何文件',
+      'deploy.error': '面板连不上本地部署路由',
+    });
+    Object.assign(en, {
+      'tab.deploy': 'Deploy',
+      'deploy.hint': 'Install the upstream skill into a local agent client. Preview first, then confirm; existing directories are skipped, never overwritten.',
+      'deploy.target': 'Target',
+      'deploy.refresh': 'Refresh',
+      'deploy.preview': 'Preview (no writes)',
+      'deploy.run': 'Deploy',
+      'deploy.running': 'Working…',
+      'deploy.done': 'Deployed; status refreshed',
+      'deploy.previewDone': 'Preview finished; nothing was written',
+      'deploy.error': 'The panel cannot reach the local deploy route',
+    });
+
     /** 分类与难度的中文说法（数据本身是中文，界面不暴露英文枚举）。 */
     const CAT_LABEL = {
       part: '零件',
@@ -1171,12 +1197,147 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const DEPLOY_TARGETS = ['codex', 'claude', 'cursor', 'agents', 'openclaw'];
+    const DEPLOY_STATE_LABEL = {
+      'installed-by-plugin': '本插件装过',
+      unmanaged: '别的方式装的（不会覆盖）',
+      'not-installed': '目录不存在（不会创建）',
+    };
+
+    /**
+     * 技能部署页：真正执行部署，而不是只显示命令。
+     * 数据来自宿主的两条本地路由 /swas/status 与 /swas/deploy；
+     * 路由不可用（未重启或宿主没有 webServer）时退回可复制的 CLI 命令。
+     */
+    function DeployTab(props) {
+      const { t } = props;
+      const [clients, setClients] = useState(null);
+      const [target, setTarget] = useState('codex');
+      const [logs, setLogs] = useState([]);
+      const [error, setError] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [done, setDone] = useState('');
+
+      const request = useCallback(async (path, options) => {
+        const response = await fetch(path, Object.assign(
+          { credentials: 'same-origin', headers: { 'x-swas-client': 'ui', 'content-type': 'application/json' } },
+          options,
+        ));
+        return response.json();
+      }, []);
+
+      const loadStatus = useCallback(async () => {
+        setBusy(true);
+        setError('');
+        try {
+          const data = await request('/swas/status');
+          if (!data.ok) throw new Error(data.error || 'status failed');
+          setClients(data.clients || []);
+        } catch (cause) {
+          setError(String(cause && cause.message ? cause.message : cause));
+        } finally {
+          setBusy(false);
+        }
+      }, [request]);
+
+      React.useEffect(() => {
+        let alive = true;
+        request('/swas/status')
+          .then((data) => {
+            if (!alive) return;
+            if (data.ok) setClients(data.clients || []);
+            else setError(data.error || 'status failed');
+          })
+          .catch((cause) => {
+            if (alive) setError(String(cause && cause.message ? cause.message : cause));
+          });
+        return () => {
+          alive = false;
+        };
+      }, [request]);
+
+      const deploy = useCallback(
+        async (dryRun) => {
+          if (!dryRun && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+            const ok = window.confirm(`确认把技能真正部署到 ${target}？目录已存在会被跳过，不会覆盖。`);
+            if (!ok) return;
+          }
+          setBusy(true);
+          setError('');
+          setDone('');
+          try {
+            const data = await request('/swas/deploy', { method: 'POST', body: JSON.stringify({ target, dryRun }) });
+            if (!data.ok) throw new Error(data.error || 'deploy failed');
+            setLogs(data.logs || []);
+            setDone(data.dryRun ? t('deploy.previewDone') : t('deploy.done'));
+            if (!data.dryRun) loadStatus();
+          } catch (cause) {
+            setError(String(cause && cause.message ? cause.message : cause));
+          } finally {
+            setBusy(false);
+          }
+        },
+        [request, target, t, loadStatus],
+      );
+
+      return el(
+        'div',
+        null,
+        el('div', { style: styles.meta }, t('deploy.hint')),
+        el(
+          'div',
+          { style: Object.assign({}, styles.row, { margin: '10px 0' }) },
+          el('span', { style: styles.meta }, t('deploy.target')),
+          el(
+            'select',
+            { style: Object.assign({}, styles.input, { width: 'auto' }), value: target, onChange: (event) => setTarget(event.target.value) },
+            DEPLOY_TARGETS.map((item) => el('option', { key: item, value: item }, item)),
+          ),
+          el(Btn, { label: t('deploy.refresh'), onClick: loadStatus, disabled: busy }),
+          el(Btn, { label: t('deploy.preview'), onClick: () => deploy(true), disabled: busy }),
+          el(Btn, { kind: 'primary', label: busy ? t('deploy.running') : t('deploy.run'), onClick: () => deploy(false), disabled: busy }),
+        ),
+        done !== '' ? el('div', { style: Object.assign({}, styles.meta, styles.flash) }, done) : null,
+        error !== ''
+          ? el(
+              'div',
+              { style: Object.assign({}, styles.card, { marginTop: 8 }) },
+              el('div', { style: styles.cardTitle }, t('deploy.error')),
+              el('div', { style: styles.meta }, error),
+              el('pre', { style: styles.pre }, `node bin/swas.mjs agents\nnode bin/swas.mjs install --target ${target} --dry-run\nnode bin/swas.mjs install --target ${target}`),
+            )
+          : null,
+        clients
+          ? el(
+              'div',
+              { style: { marginTop: 10 } },
+              clients.map((client) =>
+                el(
+                  'div',
+                  { key: client.target, style: Object.assign({}, styles.card, { marginBottom: 6 }) },
+                  el(
+                    'div',
+                    { style: styles.row },
+                    el('span', { style: styles.cardTitle }, client.target),
+                    el('span', { style: styles.tag }, DEPLOY_STATE_LABEL[client.state] || client.state),
+                    el('span', { style: Object.assign({}, styles.meta, { marginLeft: 'auto' }) }, client.commit ? client.commit.slice(0, 10) : '—'),
+                  ),
+                  el('div', { style: styles.meta }, client.dest || ''),
+                ),
+              ),
+            )
+          : null,
+        logs.length > 0 ? el('pre', { style: styles.pre }, logs.join('\n')) : null,
+      );
+    }
+
     const PAGE_TABS = [
       { id: 'templates', labelKey: 'tab.templates' },
       { id: 'prompt', labelKey: 'tab.prompt' },
       { id: 'plan', labelKey: 'tab.plan' },
       { id: 'tips', labelKey: 'tab.tips' },
       { id: 'gate', labelKey: 'tab.gate' },
+      { id: 'deploy', labelKey: 'tab.deploy' },
       { id: 'modes', labelKey: 'tab.modes' },
     ];
 
@@ -1263,6 +1424,7 @@ window.__ModuleLoader__.load({
           tab === 'plan' ? el(PlanTab, shared) : null,
           tab === 'tips' ? el(TipsTab, shared) : null,
           tab === 'gate' ? el(GateTab, shared) : null,
+          tab === 'deploy' ? el(DeployTab, shared) : null,
           tab === 'modes' ? el(AgentModesTab, shared) : null,
         ),
       );
