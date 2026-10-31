@@ -1,10 +1,10 @@
 {
   "name": "dsh-solidworks-copilot",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "SolidWorks 自动化副驾：提示词生成、设计思路、模板预设、技巧库与交付门禁（面向 solidworks-automation-skill）",
+  "description": "DSH plugin + CLI for the SolidWorks automation skill: composer/sidebar UI, prompt & template tools, 2 agent presets, and an idempotent skill deployer.",
   "icon": "icon.svg",
   "exports": {
     ".": "./index.js",
@@ -19,6 +19,10 @@
     "catalog.js",
     "generate.js",
     "content/*.js",
+    "lib/*.mjs",
+    "bin/*.mjs",
+    "templates/*.md",
+    "docs/*.md",
     "cordis.patch.yml",
     "presets/*.yml",
     "prompts/*.md",
@@ -50,7 +54,11 @@
     "build:client": "node scripts/build-client.mjs",
     "import:content": "node scripts/import-content.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "check": "node --check index.js && node --check catalog.js && node --check generate.js && node --check client.js"
+    "check": "node --check index.js && node --check catalog.js && node --check generate.js && node --check client.js",
+    "swas": "node bin/swas.mjs",
+    "swas:agents": "node bin/swas.mjs agents",
+    "swas:specs": "node bin/swas.mjs templates",
+    "deploy:dry": "node bin/swas.mjs install --dry-run"
   },
   "license": "MIT",
   "author": "redstonedust",
@@ -73,5 +81,8 @@
     "prompt",
     "agent-preset",
     "skill"
-  ]
+  ],
+  "bin": {
+    "swas": "./bin/swas.mjs"
+  }
 }

@@ -14,6 +14,8 @@
 import { existsSync } from 'node:fs';
 import { templates, tips, gates, meta, routing, fallbackTemplate, agentModes } from './catalog.js';
 import { buildPrompt, buildPlan, matchTemplate, searchTips, pickGates, gatePrompt, routeFor } from './generate.js';
+import { DEFAULT_REF, UPSTREAM, detectClients, ensureSkill, installMany } from './lib/fetch-core.mjs';
+import { listTemplates as listSpecTemplates, renderTemplate as renderSpec } from './lib/templates.mjs';
 
 /** 需要 tools 服务；缺失时插件保持不激活而不抛错。 */
 export const inject = ['tools'];
@@ -100,10 +102,11 @@ function buildToolDefinitions(ctx, config) {
         type: 'object',
         additionalProperties: false,
         properties: {
-          action: { type: 'string', enum: ['list', 'get', 'routing'], description: '操作类型。' },
-          id: { type: 'string', description: 'get：模板 id，例如 mounting-bracket。' },
+          action: { type: 'string', enum: ['list', 'get', 'routing', 'specs', 'spec'], description: '操作类型：list/get 看 UI 模板，routing 查任务路由，specs/spec 用 CLI 需求书模板。' },
+          id: { type: 'string', description: 'get / spec：模板 id，例如 mounting-bracket、part-bracket。' },
           category: { type: 'string', description: 'list：按分类过滤，例如 part、hole、assembly、drawing、export。' },
           query: { type: 'string', description: 'routing：中文需求描述，例如「带四个 M6 沉孔的安装板」。' },
+          params: { type: 'object', additionalProperties: true, description: 'spec：字段键值，例如 {"SIZE":"120x80x10"}。' },
         },
         required: ['action'],
       },
@@ -112,6 +115,36 @@ function buildToolDefinitions(ctx, config) {
       async execute(args) {
         const input = asRecord(args);
         const action = String(input.action || 'list');
+        if (action === 'specs') {
+          const specs = listSpecTemplates();
+          const lines = ['# 需求书模板（CLI 与 swas_templates(action:"spec") 共用）'];
+          for (const spec of specs) {
+            lines.push(`- ${spec.id}｜${spec.title}｜${spec.useFor}`);
+            lines.push(`  必填字段：${spec.fields.join(', ')}`);
+          }
+          lines.push('');
+          lines.push('渲染：swas_templates({ action: "spec", id: "<id>", params: { FIELD: "值" } })');
+          return { text: lines.join('\n'), specs };
+        }
+        if (action === 'spec') {
+          const specId = String(input.id || '').trim();
+          if (specId === '') return { text: 'spec 需要 id，例如 part-bracket；先调 action:"specs" 看清单。', spec: null };
+          try {
+            const rendered = renderSpec(specId, normalizeValues(asRecord(input.params)));
+            const lines = [
+              `# ${rendered.title}（${rendered.id}）`,
+              rendered.text,
+              '',
+              '---',
+              `已填：${rendered.filled.join(', ') || '无'}`,
+              `未填：${rendered.missing.join(', ') || '无'}`,
+              rendered.unknown.length > 0 ? `未知字段（模板不认识，已忽略）：${rendered.unknown.join(', ')}` : '',
+            ].filter((line) => line !== '');
+            return { text: withSkillDir(lines.join('\n'), configSkillDir), spec: rendered };
+          } catch (error) {
+            return { text: `渲染失败：${error.message}`, spec: null };
+          }
+        }
         if (action === 'routing') {
           const hits = routeFor(input.query || '');
           const text =
@@ -144,6 +177,9 @@ function buildToolDefinitions(ctx, config) {
             ...(template.risks || []).map((r) => `- ${r}`),
           ];
           return { text: lines.join('\n'), template };
+        }
+        if (action !== 'list') {
+          return { text: `未知 action：${action}。可用：list / get / routing / specs / spec。`, templates: [] };
         }
         const category = String(input.category || '').trim().toLowerCase();
         const rows = templates
@@ -188,14 +224,15 @@ function buildToolDefinitions(ctx, config) {
         const chosen = template || fallbackTemplate;
         const values = normalizeValues(asRecord(input.params));
         const detail = input.detail === 'brief' ? 'brief' : defaultDetail;
-        const { prompt, missing } = buildPrompt({ template: chosen, task, values, detail });
+        const { prompt, missing, optionalMissing } = buildPrompt({ template: chosen, task, values, detail });
         const text = withSkillDir(prompt, configSkillDir);
         const routingHits = routeFor(`${task} ${chosen.name}`);
         const body = [
           text,
           '',
           '---',
-          `模板：${chosen.id}（${chosen.name}）｜缺失参数：${missing.length > 0 ? missing.join(', ') : '无'}`,
+          `模板：${chosen.id}（${chosen.name}）｜必填缺失：${missing.length > 0 ? missing.join(', ') : '无'}`,
+          optionalMissing.length > 0 ? `可选未填：${optionalMissing.join(', ')}` : '',
           routingHits.length > 0 ? `建议脚本：${routingHits.map((h) => h.entry).join('；')}` : `建议脚本：${chosen.entry}`,
           alternatives.length > 1 ? `其他候选：${alternatives.slice(1).map((a) => `${a.name}(${a.id})`).join('、')}` : '',
         ]
@@ -206,6 +243,7 @@ function buildToolDefinitions(ctx, config) {
           template: chosen.id,
           templateName: chosen.name,
           missing,
+          optionalMissing,
           prompt: text,
           alternatives,
           routing: routingHits,
@@ -300,6 +338,63 @@ function buildToolDefinitions(ctx, config) {
       },
     },
     {
+      name: 'swas_deploy',
+      description: [
+        '把上游 SolidWorks Automation Skill 部署到本机 Agent 客户端（codex / claude / cursor / agents / openclaw）。',
+        'action:"status" 只读列出各客户端目录状态；action:"install" 默认 dryRun=true 先打印计划，确认后传 dryRun:false 才真正落盘。',
+        '目录已存在默认跳过，force=true 才会改名为 <dir>.bak-<时间戳> 再装；不跑上游脚本、不改上游代码。',
+      ].join(''),
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          action: { type: 'string', enum: ['status', 'install'], description: '操作类型。' },
+          target: { type: 'string', description: '目标客户端：codex|claude|cursor|agents|openclaw|all，默认 codex。' },
+          ref: { type: 'string', description: '上游 ref（commit/tag/分支），默认钉死的 commit。' },
+          dryRun: { type: 'boolean', description: 'install 时是否只打印计划，默认 true。' },
+          force: { type: 'boolean', description: '目标已存在时是否备份后覆盖，默认 false。' },
+        },
+        required: ['action'],
+      },
+      output: OUTPUT,
+      isConcurrencySafe: () => false,
+      async execute(args) {
+        const input = asRecord(args);
+        const action = String(input.action || 'status');
+        if (action === 'status') {
+          const clients = detectClients();
+          const lines = ['# 客户端状态', `上游：${UPSTREAM}`, `默认 ref：${DEFAULT_REF}`, ''];
+          lines.push('target      skills目录  状态                commit');
+          for (const client of clients) {
+            lines.push(
+              `${client.target.padEnd(11)} ${(client.skillsDirExists ? '有' : '无').padEnd(11)} ${client.state.padEnd(19)} ${client.commit ? client.commit.slice(0, 10) : '-'}`,
+            );
+          }
+          lines.push('');
+          lines.push('状态含义：installed-by-plugin 本插件装过；unmanaged 别的方式装的（部署时跳过、不覆盖）；not-installed 客户端目录不存在。');
+          return { text: lines.join('\n'), clients };
+        }
+        const target = String(input.target || config.autoFetchTarget || 'codex');
+        const dryRun = input.dryRun !== false;
+        const ref = typeof input.ref === 'string' && input.ref.trim() !== '' ? input.ref : DEFAULT_REF;
+        const logs = [];
+        let results;
+        try {
+          results = installMany({
+            targets: [target],
+            ref,
+            force: input.force === true,
+            dryRun,
+            log: (line) => logs.push(line),
+          });
+        } catch (error) {
+          return { text: `部署参数有误：${error.message}`, results: [] };
+        }
+        const lines = [dryRun ? '# 部署计划（未落盘，确认后传 dryRun:false）' : '# 部署结果', ...logs];
+        return { text: lines.join('\n'), results };
+      },
+    },
+    {
       name: 'swas_status',
       description: [
         '查看 SolidWorks 副驾自身状态：知识库条目数、预置 Agent 模式、技能目录是否存在、Web 面板模块是否已装配。',
@@ -320,11 +415,19 @@ function buildToolDefinitions(ctx, config) {
         }
         const dir = (configSkillDir || '').trim();
         const skillDirExists = dir === '' ? null : existsSync(dir);
+        let clientLine = '客户端：读取失败';
+        try {
+          clientLine = `客户端：${detectClients().map((c) => `${c.target}=${c.state}`).join('、')}`;
+        } catch {
+          /* 读不到客户端目录不影响其它状态 */
+        }
         const lines = [
           `# SolidWorks 副驾 v${meta.version}`,
-          `模板 ${templates.length}｜技巧 ${tips.length}｜门禁 ${gates.length}｜路由 ${routing.length}｜Agent 模式 ${agentModes.length}`,
+          `模板 ${templates.length}｜技巧 ${tips.length}｜门禁 ${gates.length}｜路由 ${routing.length}｜Agent 模式 ${agentModes.length}｜需求书模板 ${listSpecTemplates().length}`,
           `Agent 模式：${agentModes.map((m) => `${m.name}（${m.id}）`).join('、')}`,
+          clientLine,
           `技能目录：${dir === '' ? '未配置（提示词里保留 SKILL_DIR 占位符）' : `${dir}｜${skillDirExists ? '存在' : '不存在'}`}`,
+          `加载时自动部署：${config.autoFetch === true ? `开启（target=${config.autoFetchTarget || 'codex'}）` : '关闭（需要时调 swas_deploy）'}`,
           `Web 面板模块：${clientPath ? `已装配（${clientPath}）` : '未装配——Host 组合是在启动时建立的，重启 DSH 后加载'}`,
         ];
         return { text: lines.join('\n'), client: { id: 'dsh-solidworks-copilot', composed: Boolean(clientPath), path: clientPath || null } };
@@ -336,13 +439,32 @@ function buildToolDefinitions(ctx, config) {
 /**
  * 注册全部工具。
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @param {{ skillDir?: string, defaultDetail?: string, maxTips?: number }} [config]
+ * @param {{ skillDir?: string, defaultDetail?: string, maxTips?: number, autoFetch?: boolean, autoFetchTarget?: string, ref?: string }} [config]
  */
 export function apply(ctx, config = {}) {
   const disposers = buildToolDefinitions(ctx, config).map((definition) =>
     ctx.effect(() => ctx.tools.register(definition), `solidworks-copilot: ${definition.name}`),
   );
+  let cancelled = false;
+  if (config.autoFetch === true) {
+    // 默认不自动部署；显式开启时放到下一轮事件循环，失败只影响部署，不影响 DSH 启动。
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      const targets = String(config.autoFetchTarget || 'codex')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      for (const target of targets) {
+        try {
+          ensureSkill({ target, ref: config.ref || DEFAULT_REF, log: () => {} });
+        } catch {
+          /* 单个目标失败不阻断其它目标 */
+        }
+      }
+    });
+  }
   return () => {
+    cancelled = true;
     for (const dispose of disposers) {
       try {
         dispose();

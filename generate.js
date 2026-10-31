@@ -102,19 +102,21 @@ export function fill(text, input = {}) {
  * @param {string} [input.task]
  * @param {Record<string, string>} [input.values]
  * @param {'brief'|'full'} [input.detail]
- * @returns {{ prompt: string, missing: string[] }}
+ * @returns {{ prompt: string, missing: string[], optionalMissing: string[] }}
  */
 export function buildPrompt(input) {
   const detail = input.detail === 'brief' ? 'brief' : 'full';
   const skeleton = promptTemplateFor(input.template, { detail });
   const prompt = fill(skeleton, input);
-  const missing = (input.template.params || [])
+  const emptyKeys = (input.template.params || [])
     .filter((p) => {
       const v = (input.values || {})[p.key];
       return v === undefined || v === null || String(v).trim() === '';
-    })
-    .map((p) => p.key);
-  return { prompt, missing };
+    });
+  // required 才是「不填就不能开工」；可选字段单独列出，别把 5 个缺失混成一片
+  const missing = emptyKeys.filter((p) => p.required !== false).map((p) => p.key);
+  const optionalMissing = emptyKeys.filter((p) => p.required === false).map((p) => p.key);
+  return { prompt, missing, optionalMissing };
 }
 
 /**

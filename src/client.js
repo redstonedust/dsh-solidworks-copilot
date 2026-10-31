@@ -708,6 +708,17 @@ window.__ModuleLoader__.load({
           el(
             'div',
             { style: styles.field },
+            el('label', { style: styles.label }, t('prompt.task') + '（可不填，模板已经带了标准写法）'),
+            el('textarea', {
+              style: styles.textarea,
+              value: task,
+              placeholder: t('prompt.taskPlaceholder'),
+              onChange: (event) => setTask(event.target.value),
+            }),
+          ),
+          el(
+            'div',
+            { style: styles.field },
             el('label', { style: styles.label }, t('common.detail')),
             el(
               'div',
@@ -732,17 +743,6 @@ window.__ModuleLoader__.load({
             },
           }),
           el(Preview, { text: props.preview, title: t('common.preview') }),
-          el(
-            'div',
-            { style: styles.field },
-            el('label', { style: styles.label }, t('prompt.taskLabel')),
-            el('textarea', {
-              style: styles.textarea,
-              value: task,
-              placeholder: t('prompt.taskPlaceholder'),
-              onChange: (event) => setTask(event.target.value),
-            }),
-          ),
         );
       }
 

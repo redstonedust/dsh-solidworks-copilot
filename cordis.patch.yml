@@ -1,4 +1,4 @@
-# SolidWorks 副驾 bundle：一行 Host 插件 + 一个 Web Client 模块。
+# SolidWorks 副驾 bundle：一行 Host 插件 + 一个 Web Client 模块 + 两个 Agent 模式。
 # 安装方式：plugin_manager(install_bundle, target=此目录绝对路径)
 - insert:
     - id: solidworks-copilot
@@ -9,3 +9,6 @@
         skillDir: ''
         defaultDetail: full
         maxTips: 12
+        # 加载时是否自动把上游技能部署到客户端；默认关闭，需要时调 swas_deploy 或改这里
+        autoFetch: false
+        autoFetchTarget: codex
