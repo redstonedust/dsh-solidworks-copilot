@@ -1,0 +1,11 @@
+# SolidWorks 副驾 bundle：一行 Host 插件 + 一个 Web Client 模块。
+# 安装方式：plugin_manager(install_bundle, target=此目录绝对路径)
+- insert:
+    - id: solidworks-copilot
+      name: dsh-solidworks-copilot
+      inject:
+        - tools
+      config:
+        skillDir: ''
+        defaultDetail: full
+        maxTips: 12

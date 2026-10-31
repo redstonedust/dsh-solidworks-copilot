@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# 本地调研产物，不入库
+_sw_pack/
+
+# 构建/测试临时目录
+/tmp/
+/out/

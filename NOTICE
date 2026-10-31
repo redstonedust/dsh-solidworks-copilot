@@ -1,0 +1,50 @@
+dsh-solidworks-copilot
+Copyright (c) 2026 redstonedust
+Licensed under the MIT License (see LICENSE).
+
+--------------------------------------------------------------------------------
+DERIVED CONTENT FROM THE UPSTREAM SKILL
+--------------------------------------------------------------------------------
+
+This plugin is a companion UI and toolset for the SolidWorks Automation Skill.
+Its knowledge base (prompt scaffolding, template presets, tips, delivery gates
+and the nine-phase design outline under content/, catalog.js and generate.js)
+was distilled from that project's documentation and scripts.
+
+  Project : SolidWorks Automation Skill
+  Upstream: https://github.com/wzyn20051216/solidworks-automation-skill
+  Copyright (c) 2026 SolidWorks Automation Skill Contributors
+  License : MIT
+  Full text: licenses/UPSTREAM-MIT.txt
+
+Pinned revision the content was derived from:
+  2f455f2ef5f30db6ef3ce14261199eb5055d99ca
+
+MIT obligations that apply here:
+
+  1. The upstream copyright notice and permission notice travel with this
+     repository in licenses/UPSTREAM-MIT.txt and in this NOTICE, because the
+     distilled content is a derivative of the upstream documentation.
+  2. The plugin does NOT bundle the upstream skill itself. Running it still
+     requires the skill to be installed separately in your agent client; the
+     prompts this plugin produces refer to files under that skill directory.
+
+--------------------------------------------------------------------------------
+TRADEMARKS
+--------------------------------------------------------------------------------
+
+SOLIDWORKS and Dassault Systèmes are trademarks or registered trademarks of
+Dassault Systèmes SolidWorks Corporation. They are used here only to identify
+the software this plugin works with (nominative use). This project is not
+affiliated with, sponsored by, or endorsed by Dassault Systèmes.
+
+--------------------------------------------------------------------------------
+SCOPE
+--------------------------------------------------------------------------------
+
+This plugin generates text and calls the upstream skill's own scripts. It does
+not contain, deploy, or assist with any license circumvention, patching, or
+activation bypass for SolidWorks or any other commercial software. Modeling
+still requires a properly licensed SolidWorks installation.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
