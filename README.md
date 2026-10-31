@@ -435,7 +435,7 @@ NOTICE                衍生内容署名、商标与范围声明
 | 许可 | MIT |
 | 已知限制 | 面板需刷新/重启后装配；默认不自动部署；上游技能需合法授权的 SolidWorks 才能真建模 |
 
-尚未发布到 npm：因此可在本站被索引，但不会出现在 DSH 内的 Plugin Hub。发布后可换成 `dsh plugin --profile web add dsh-solidworks-copilot`。
+尚未发布到 npm：因此可在本站被索引，但不会出现在 DSH 内的 Plugin Hub。发布后可换成 `dsh plugin --profile web add dsh-solidworks-copilot`。发布步骤见 [RELEASING.md](RELEASING.md)。
 
 ---
 
@@ -467,7 +467,7 @@ NOTICE                衍生内容署名、商标与范围声明
 **版本策略**
 
 - 目前 `0.x`：不承诺语义化版本稳定性，破坏性改动会写进提交信息和本节；
-- 没有单独的 CHANGELOG，变更看 `git log --oneline`；
+- 没有单独的 CHANGELOG，变更看 `git log --oneline`；发布到 npm 的步骤见 [RELEASING.md](RELEASING.md)；
 - 已归档的 `dsh-solidworksskill-plugin` 不再维护，其部署与模板能力已并入本仓库。
 
 **已知限制**

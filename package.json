@@ -36,7 +36,8 @@
     "docs/images/*.png",
     "scripts/*.mjs",
     "scripts/*.py",
-    "SECURITY.md"
+    "SECURITY.md",
+    "RELEASING.md"
   ],
   "dsh": {
     "bundle": {
@@ -64,7 +65,8 @@
     "swas:agents": "node bin/swas.mjs agents",
     "swas:specs": "node bin/swas.mjs templates",
     "deploy:dry": "node bin/swas.mjs install --dry-run",
-    "prepublishOnly": "node --check index.js && node --check client.js && node scripts/check-readme.mjs"
+    "prepublishOnly": "node --check index.js && node --check client.js && node scripts/check-readme.mjs",
+    "pack:check": "npm pack --dry-run"
   },
   "license": "MIT",
   "author": "redstonedust",

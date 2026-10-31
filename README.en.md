@@ -422,7 +422,7 @@ Submission metadata ready to reuse:
 
 Not published to npm yet: the hub can index the repository, but it will not appear inside DSH's
 Plugin Hub until the package is on npm. After publishing, the install line becomes
-`dsh plugin --profile web add dsh-solidworks-copilot`.
+`dsh plugin --profile web add dsh-solidworks-copilot`. Release steps: [RELEASING.md](RELEASING.md).
 
 ---
 
