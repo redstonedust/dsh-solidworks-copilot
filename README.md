@@ -5,11 +5,18 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Upstream: MIT](https://img.shields.io/badge/Upstream-MIT-blue.svg)](licenses/UPSTREAM-MIT.txt)
-![DSH plugin](https://img.shields.io/badge/DSH-plugin-4b8bf5)
+[![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-4b8bf5)](https://github.com/topics/dsh-plugin)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 ![100% vibe coding](https://img.shields.io/badge/100%25-vibe%20coding-ff69b4)
 
+**分类**：`Tools & Capabilities`（工具与能力；面板属 `UI & Experience`）· **许可**：MIT · **运行时**：DSH Desktop / Web，Node ≥ 20
+
 **简体中文** · [English](README.en.md)
+
+```bash
+# 一行安装（源码方式，无需 npm 包）
+dsh plugin --profile web add github:redstonedust/dsh-solidworks-copilot
+```
 
 ---
 
@@ -30,6 +37,7 @@
 - [仓库结构](#仓库结构)
 - [许可与署名](#许可与署名)
 - [关于](#关于)
+- [社区提交清单](#社区提交清单)
 - [维护说明](#维护说明)
 
 ---
@@ -64,13 +72,19 @@
 
 ### 第 1 步：装上插件
 
-在 DSH 里执行一次（需要 Full access）：
+**方式 A：DSH CLI（一行命令，推荐）**
+
+```bash
+dsh plugin --profile web add github:redstonedust/dsh-solidworks-copilot
+```
+
+**方式 B：已经在 DSH 里、或本地已 clone**
 
 ```js
 plugin_manager({ action: 'install_bundle', target: '<本仓库绝对路径>' })
 ```
 
-然后**刷新页面**。会出现两个入口：左侧栏的 **SolidWorks 副驾** 图标，以及输入框下方的一条小卡。
+两者都需要 Full access。然后**刷新页面**。会出现两个入口：左侧栏的 **SolidWorks 副驾** 图标，以及输入框下方的一条小卡。
 
 还没有装技能的话，打开面板切到 **技能部署** 页：选客户端 → 点 **预演** 看计划 → 点 **确认部署**。目录已存在会被跳过，不会覆盖你手动装的副本。
 
@@ -228,6 +242,24 @@ config:
 
 ---
 
+## 权限、外部服务与兼容性
+
+安装前需要知道的全在这里，没有隐藏行为：
+
+| 项 | 实际行为 |
+|---|---|
+| **文件写入** | 只写目标客户端的 `skills/<skill 名>` 目录（部署时）与 `.provenance.json`；从不删除，`force` 也只是改名备份 |
+| **本地 HTTP 路由** | 仅两条：`GET /swas/status`、`POST /swas/deploy`；只监听本机回环，且要求 `sec-fetch-site: same-origin` + `x-swas-client: ui`，否则 `403` |
+| **网络** | 默认**不联网**。只有你主动部署（面板「确认部署」/ CLI `install` / 工具 `swas_deploy` 且 `dryRun:false`），或把 `autoFetch` 设为 `true` 时，才访问 `github.com` 拉取上游仓库 |
+| **外部服务** | 无第三方 API、无遥测、无账号体系、不收集任何使用数据 |
+| **凭据** | 不读取、不存储、不上传任何密钥或令牌 |
+| **运行环境** | DSH Desktop / Web；Node ≥ 20；部署与建模脚本按 Windows 路径实践编写 |
+| **兼容** | 在 DSH Desktop `0.2.1-rc.2` 验证；上游技能内容按 commit `2f455f2e` 提炼 |
+
+一行安装走的是源码方式（`github:<owner>/<repo>`）。本包尚未发布到 npm；发布后同样的位置会给出 `dsh plugin --profile web add dsh-solidworks-copilot`。
+
+---
+
 ## CLI
 
 ```text
@@ -375,6 +407,35 @@ NOTICE                衍生内容署名、商标与范围声明
 本项目为 **100% vibe coding**：代码、文档与测试全部由 AI 按自然语言指令生成，人工只负责需求、评审与验收，不手写实现。对外宣称的行为均经实跑验证（`smoke.mjs` 渲染各标签页，`selftest.mjs` 覆盖 7 个工具与边界输入）；上游 MIT 署名、部署默认关闭、`ref` 形态校验按常规工程处理。该标注说明实现来源，不构成质量背书。
 
 阅读顺序：`index.js` → `lib/fetch-core.mjs` → `src/client.js`；只想使用的话，[操作说明](#操作说明照着点就行) 已覆盖全部步骤。
+
+---
+
+## 社区提交清单
+
+面向 [dsh-plugin.org](https://dsh-plugin.org/submit) 的审核要求，本仓库当前状态：
+
+- [x] 仓库公开（`redstonedust/dsh-solidworks-copilot`）
+- [x] GitHub topic `dsh-plugin` 已添加
+- [x] README 含安装命令：`dsh plugin --profile web add github:redstonedust/dsh-solidworks-copilot`
+- [x] 插件导出 `apply(ctx)`（`index.js` 的 `export function apply`）
+- [x] 仓库根目录含 `package.json`（`name` = `dsh-solidworks-copilot`，`version` = `0.3.0`）
+- [x] 许可证：MIT（`LICENSE`），上游署名见 `NOTICE`
+- [x] 截图 / 成品演示：`docs/images/*.png`
+- [x] 权限与外部服务：见上方「权限、外部服务与兼容性」
+- [x] 分类：`Tools & Capabilities`（另涉 `UI & Experience`）
+
+提交时可直接用的信息：
+
+| 字段 | 内容 |
+|---|---|
+| 标题 | `[Plugin submission] redstonedust/dsh-solidworks-copilot — SolidWorks 建模的需求书生成器与技能部署器` |
+| 一行价值 | 装完后，你能把「画个安装板」变成一份带参数、特征顺序、验收证据的需求书，并在面板里一键把上游技能装到 Agent 客户端。 |
+| 安装命令 | `dsh plugin --profile web add github:redstonedust/dsh-solidworks-copilot` |
+| 兼容性 | DSH Desktop `0.2.1-rc.2`；Windows；Node ≥ 20 |
+| 许可 | MIT |
+| 已知限制 | 面板需刷新/重启后装配；默认不自动部署；上游技能需合法授权的 SolidWorks 才能真建模 |
+
+尚未发布到 npm：因此可在本站被索引，但不会出现在 DSH 内的 Plugin Hub。发布后可换成 `dsh plugin --profile web add dsh-solidworks-copilot`。
 
 ---
 
