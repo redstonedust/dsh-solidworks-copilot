@@ -63,7 +63,8 @@
     "swas": "node bin/swas.mjs",
     "swas:agents": "node bin/swas.mjs agents",
     "swas:specs": "node bin/swas.mjs templates",
-    "deploy:dry": "node bin/swas.mjs install --dry-run"
+    "deploy:dry": "node bin/swas.mjs install --dry-run",
+    "prepublishOnly": "node --check index.js && node --check client.js && node scripts/check-readme.mjs"
   },
   "license": "MIT",
   "author": "redstonedust",
@@ -89,5 +90,8 @@
   ],
   "bin": {
     "swas": "./bin/swas.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
