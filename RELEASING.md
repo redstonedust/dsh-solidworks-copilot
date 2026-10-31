@@ -12,6 +12,22 @@ npm pack --dry-run            # 看会打包哪些文件（当前 42 个文件 /
 
 包名已在 2026-10-31 查询为可用；发布前请再查一次，避免占用冲突。
 
+### 注意：本机 registry 指向国内镜像
+
+```bash
+npm config get registry
+# https://registry.npmmirror.com
+```
+
+npmmirror 是**只读镜像**，不能发布。登录、查看、发布都要显式指向官方源，不要改全局配置（否则国内装包会变慢）：
+
+```bash
+npm login  --registry=https://registry.npmjs.org
+npm view   dsh-solidworks-copilot version --registry=https://registry.npmjs.org
+npm publish --registry=https://registry.npmjs.org --access public
+```
+
+
 ## 1. 登录（一次性）
 
 **交互式（本机）**
