@@ -30,7 +30,7 @@ export const meta = {
   capabilitySource: 'SKILL_DIR/capabilities.yaml',
   router: 'python SKILL_DIR/scripts/backend_router.py --list',
   apiLookup: 'python SKILL_DIR/scripts/sw_api_lookup.py <接口> <方法>',
-  version: '0.1.0',
+  version: '0.5.0',
 };
 
 /** 能力等级语义（来自 capabilities.yaml），用于提示词里的门禁措辞。 */
