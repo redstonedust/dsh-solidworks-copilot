@@ -1,7 +1,6 @@
 {
   "name": "dsh-solidworks-copilot",
-  "version": "0.3.0",
-  "private": true,
+  "version": "0.3.1",
   "type": "module",
   "main": "index.js",
   "description": "DSH plugin + CLI for the SolidWorks automation skill: composer/sidebar UI, prompt & template tools, 2 agent presets, and an idempotent skill deployer.",

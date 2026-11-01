@@ -239,6 +239,16 @@ window.__ModuleLoader__.load({
       'deploy.done': '部署完成，状态已刷新',
       'deploy.previewDone': '预演完成：没有改动任何文件',
       'deploy.error': '面板连不上本地部署路由',
+      'deploy.failed': '部署失败，展开下面的日志看原因',
+      'deploy.phase.start': '准备中',
+      'deploy.phase.resolve': '解析目标',
+      'deploy.phase.probe': '检查现有目录',
+      'deploy.phase.fetch': '从上游拉取',
+      'deploy.phase.checkout': '检出提交',
+      'deploy.phase.verify': '校验文件',
+      'deploy.phase.write': '写入目标目录',
+      'deploy.phase.done': '完成',
+      'deploy.phase.failed': '失败',
     });
     Object.assign(en, {
       'tab.deploy': 'Deploy',
@@ -251,6 +261,16 @@ window.__ModuleLoader__.load({
       'deploy.done': 'Deployed; status refreshed',
       'deploy.previewDone': 'Preview finished; nothing was written',
       'deploy.error': 'The panel cannot reach the local deploy route',
+      'deploy.failed': 'Deployment failed — see the log below',
+      'deploy.phase.start': 'Starting',
+      'deploy.phase.resolve': 'Resolving target',
+      'deploy.phase.probe': 'Checking existing install',
+      'deploy.phase.fetch': 'Fetching upstream',
+      'deploy.phase.checkout': 'Checking out commit',
+      'deploy.phase.verify': 'Verifying files',
+      'deploy.phase.write': 'Writing target directory',
+      'deploy.phase.done': 'Done',
+      'deploy.phase.failed': 'Failed',
     });
 
     /** 分类与难度的中文说法（数据本身是中文，界面不暴露英文枚举）。 */
@@ -458,6 +478,21 @@ window.__ModuleLoader__.load({
       field: { marginBottom: 8 },
       empty: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, padding: '8px 2px' },
       flash: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 11, marginLeft: 4 },
+      progressWrap: { margin: '10px 0 6px' },
+      progressTrack: {
+        height: 8,
+        borderRadius: 999,
+        background: 'var(--dsw-alias-bg-layer-2)',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        overflow: 'hidden',
+      },
+      progressFill: {
+        height: '100%',
+        borderRadius: 999,
+        background: 'var(--dsw-alias-label-primary)',
+        transition: 'width 260ms ease',
+      },
+      progressMeta: { display: 'flex', alignItems: 'center', marginTop: 5, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' },
       sectionTitle: { fontWeight: 600, fontSize: 12, margin: '10px 0 4px' },
       bullet: { margin: '2px 0', paddingLeft: 14, position: 'relative', lineHeight: 1.55 },
       page: {
@@ -1213,10 +1248,13 @@ window.__ModuleLoader__.load({
       const { t } = props;
       const [clients, setClients] = useState(null);
       const [target, setTarget] = useState('codex');
-      const [logs, setLogs] = useState([]);
+      const [job, setJob] = useState(null);
       const [error, setError] = useState('');
       const [busy, setBusy] = useState(false);
       const [done, setDone] = useState('');
+      const pollRef = React.useRef(null);
+
+      const phaseLabel = useCallback((phase) => t(`deploy.phase.${phase || 'start'}`), [t]);
 
       const request = useCallback(async (path, options) => {
         const response = await fetch(path, Object.assign(
@@ -1253,8 +1291,36 @@ window.__ModuleLoader__.load({
           });
         return () => {
           alive = false;
+          if (pollRef.current) clearInterval(pollRef.current);
         };
       }, [request]);
+
+      const track = useCallback(
+        (jobId, dryRun) => {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = setInterval(async () => {
+            try {
+              const data = await request(`/swas/job?id=${encodeURIComponent(jobId)}`);
+              if (!data.ok || !data.job) throw new Error(data.error || 'job failed');
+              setJob(data.job);
+              if (data.job.done) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+                setBusy(false);
+                setDone(data.job.ok ? (dryRun ? t('deploy.previewDone') : t('deploy.done')) : '');
+                if (!data.job.ok) setError(t('deploy.failed'));
+                if (!dryRun && data.job.ok) loadStatus();
+              }
+            } catch (cause) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+              setBusy(false);
+              setError(String(cause && cause.message ? cause.message : cause));
+            }
+          }, 400);
+        },
+        [request, t, loadStatus],
+      );
 
       const deploy = useCallback(
         async (dryRun) => {
@@ -1265,20 +1331,20 @@ window.__ModuleLoader__.load({
           setBusy(true);
           setError('');
           setDone('');
+          setJob({ phase: 'start', percent: 0, lines: [], done: false });
           try {
             const data = await request('/swas/deploy', { method: 'POST', body: JSON.stringify({ target, dryRun }) });
-            if (!data.ok) throw new Error(data.error || 'deploy failed');
-            setLogs(data.logs || []);
-            setDone(data.dryRun ? t('deploy.previewDone') : t('deploy.done'));
-            if (!data.dryRun) loadStatus();
+            if (!data.ok || !data.jobId) throw new Error(data.error || 'deploy failed');
+            track(data.jobId, dryRun);
           } catch (cause) {
-            setError(String(cause && cause.message ? cause.message : cause));
-          } finally {
             setBusy(false);
+            setError(String(cause && cause.message ? cause.message : cause));
           }
         },
-        [request, target, t, loadStatus],
+        [request, target, t, track],
       );
+
+      const percent = job ? Math.max(0, Math.min(100, Number(job.percent) || 0)) : 0;
 
       return el(
         'div',
@@ -1297,6 +1363,23 @@ window.__ModuleLoader__.load({
           el(Btn, { label: t('deploy.preview'), onClick: () => deploy(true), disabled: busy }),
           el(Btn, { kind: 'primary', label: busy ? t('deploy.running') : t('deploy.run'), onClick: () => deploy(false), disabled: busy }),
         ),
+        job
+          ? el(
+              'div',
+              { style: styles.progressWrap },
+              el(
+                'div',
+                { style: styles.progressTrack },
+                el('div', { style: Object.assign({}, styles.progressFill, { width: `${percent}%` }) }),
+              ),
+              el(
+                'div',
+                { style: styles.progressMeta },
+                el('span', null, phaseLabel(job.phase)),
+                el('span', { style: { marginLeft: 'auto' } }, `${percent}%`),
+              ),
+            )
+          : null,
         done !== '' ? el('div', { style: Object.assign({}, styles.meta, styles.flash) }, done) : null,
         error !== ''
           ? el(
@@ -1327,7 +1410,7 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
-        logs.length > 0 ? el('pre', { style: styles.pre }, logs.join('\n')) : null,
+        job && job.lines && job.lines.length > 0 ? el('pre', { style: styles.pre }, job.lines.join('\n')) : null,
       );
     }
 

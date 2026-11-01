@@ -16,7 +16,9 @@
  * @module dsh-solidworks-copilot
  */
 
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { templates, tips, gates, meta, routing, fallbackTemplate, agentModes } from './catalog.js';
 import { buildPrompt, buildPlan, matchTemplate, searchTips, pickGates, gatePrompt, routeFor } from './generate.js';
 import { DEFAULT_REF, UPSTREAM, detectClients, ensureSkill, installMany } from './lib/fetch-core.mjs';
@@ -27,6 +29,97 @@ export const inject = ['tools'];
 
 /** 面板调用的本地路由前缀。 */
 const ROUTE_PREFIX = '/swas';
+
+/** 部署任务表：一次部署一个子进程，面板轮询进度。 */
+const deployJobs = new Map();
+let deployJobSeq = 0;
+
+function newDeployJob(target, dryRun) {
+  const id = `job-${Date.now().toString(36)}-${(deployJobSeq += 1)}`;
+  const job = {
+    id,
+    target,
+    dryRun,
+    phase: 'start',
+    percent: 0,
+    lines: [],
+    done: false,
+    ok: null,
+    startedAt: Date.now(),
+  };
+  deployJobs.set(id, job);
+  // 只保留最近 20 个任务，避免常驻内存
+  if (deployJobs.size > 20) {
+    const oldest = [...deployJobs.values()].filter((item) => item.done).sort((a, b) => a.startedAt - b.startedAt)[0];
+    if (oldest) deployJobs.delete(oldest.id);
+  }
+  return job;
+}
+
+/** 用子进程跑 CLI 的 --json 模式，逐行解析进度，避免阻塞宿主事件循环。 */
+function startDeployJob(target, dryRun, force) {
+  const job = newDeployJob(target, dryRun);
+  const cliPath = fileURLToPath(new URL('./bin/swas.mjs', import.meta.url));
+  const cwd = fileURLToPath(new URL('.', import.meta.url));
+  const args = [cliPath, 'install', '--target', target, '--json'];
+  if (dryRun) args.push('--dry-run');
+  if (force) args.push('--force');
+
+  let child;
+  try {
+    child = spawn(process.execPath, args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    job.done = true;
+    job.ok = false;
+    job.phase = 'failed';
+    job.lines.push(String(error && error.message ? error.message : error));
+    return job;
+  }
+
+  let buffer = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    buffer += chunk;
+    let index = buffer.indexOf('\n');
+    while (index >= 0) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      if (line !== '') {
+        try {
+          const event = JSON.parse(line);
+          if (event.type === 'progress') {
+            job.phase = String(event.phase || job.phase);
+            job.percent = Number(event.percent) || job.percent;
+          } else if (event.type === 'log') {
+            job.lines.push(String(event.line));
+          } else if (event.type === 'result') {
+            job.results = (job.results || []).concat([event]);
+          }
+        } catch {
+          job.lines.push(line);
+        }
+      }
+      index = buffer.indexOf('\n');
+    }
+  });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    const text = String(chunk).trim();
+    if (text !== '') job.lines.push(text);
+  });
+  child.on('close', (code) => {
+    job.done = true;
+    job.ok = code === 0;
+    if (job.ok) {
+      job.percent = 100;
+      job.phase = 'done';
+    } else {
+      job.phase = 'failed';
+    }
+    if (job.lines.length > 200) job.lines = job.lines.slice(-200);
+  });
+  return job;
+}
 
 /**
  * 面板专用路由：同源 POST 才能触发，避免任何本地进程随意调用。
@@ -54,6 +147,25 @@ function createDeployHandler() {
       }
     }
 
+    if (url.pathname === `${ROUTE_PREFIX}/job` && req.method === 'GET') {
+      const job = deployJobs.get(String(url.searchParams.get('id') || ''));
+      if (!job) return send(404, { ok: false, error: '任务不存在或已过期' });
+      return send(200, {
+        ok: true,
+        job: {
+          id: job.id,
+          target: job.target,
+          dryRun: job.dryRun,
+          phase: job.phase,
+          percent: job.percent,
+          done: job.done,
+          ok: job.ok,
+          results: job.results || [],
+          lines: job.lines.slice(-40),
+        },
+      });
+    }
+
     if (url.pathname === `${ROUTE_PREFIX}/deploy` && req.method === 'POST') {
       let body = '';
       req.on('data', (chunk) => {
@@ -69,19 +181,8 @@ function createDeployHandler() {
         }
         const target = String(input.target || 'codex');
         const dryRun = input.dryRun !== false; // 默认只预演
-        const logs = [];
-        try {
-          const results = installMany({
-            targets: [target],
-            ref: DEFAULT_REF,
-            force: input.force === true,
-            dryRun,
-            log: (line) => logs.push(line),
-          });
-          return send(200, { ok: true, dryRun, target, logs, results });
-        } catch (error) {
-          return send(200, { ok: false, dryRun, target, logs, error: String(error && error.message ? error.message : error) });
-        }
+        const job = startDeployJob(target, dryRun, input.force === true);
+        return send(202, { ok: true, jobId: job.id, target, dryRun });
       });
       return undefined;
     }

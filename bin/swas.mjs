@@ -64,14 +64,26 @@ function parse(argv) {
 }
 
 function cmdInstall(o) {
+  const emit = (event) => {
+    if (o.json) process.stdout.write(`${JSON.stringify(event)}\n`);
+  };
   const results = installMany({
     targets: o.targets,
     dest: o.dest,
     ref: o.ref,
     force: o.force,
     dryRun: o.dryRun,
-    log: (line) => console.log(line),
+    onProgress: (phase, percent) => emit({ type: 'progress', phase, percent }),
+    log: (line) => {
+      if (o.json) emit({ type: 'log', line });
+      else console.log(line);
+    },
   });
+  if (o.json) {
+    for (const r of results) emit({ type: 'result', ...r });
+    emit({ type: 'done' });
+    return results.some((r) => r.action === 'failed') ? 1 : 0;
+  }
   console.log('\n结果:');
   for (const r of results) {
     console.log(`  ${r.target.padEnd(9)} ${r.action}${r.commit ? ` @ ${String(r.commit).slice(0, 10)}` : ''}`);

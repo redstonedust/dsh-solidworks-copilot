@@ -195,12 +195,24 @@ network and write into your home directory.
 The panel has a **Deploy** tab: pick a client, press **Preview** (prints the plan, writes nothing),
 then **Deploy**. Progress and per-client state are shown in the page, so you never need a terminal.
 
-It is backed by two loopback routes served by the plugin:
+Pressing deploy shows a **progress bar** with the current stage and percentage:
+
+```
+starting 0% → resolving target 5% → checking existing install 12% → fetching upstream 30%
+→ checking out commit 55% → verifying files 70% → writing target directory 85% → done 100%
+```
+
+The deployment runs in a child process (`bin/swas.mjs --json` emits NDJSON) and the host polls it,
+so **the DSH event loop is never blocked**. On failure the bar stops at the failing stage and the log
+plus copyable CLI commands appear right below.
+
+It is backed by three loopback routes served by the plugin:
 
 | Route | Purpose | Guard |
 |---|---|---|
 | `GET /swas/status` | client states + pinned ref | same-origin panel requests only |
-| `POST /swas/deploy` | run the deployment (`dryRun` defaults to `true`) | same as above |
+| `POST /swas/deploy` | start a deploy job, returns `jobId` (`dryRun` defaults to `true`) | same as above |
+| `GET /swas/job?id=` | job `phase` / `percent` / `lines` / `done` | same as above |
 
 Both require `sec-fetch-site: same-origin` and `x-swas-client: ui`; without them the route answers
 `403` (verified: bare `curl` → 403, panel headers → 200).

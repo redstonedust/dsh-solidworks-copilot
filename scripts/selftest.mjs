@@ -98,7 +98,19 @@ if (routes.length === 1) {
     preview,
   );
   const previewBody = JSON.parse(preview.body || '{}');
-  check(preview.statusCode === 200 && previewBody.dryRun === true, 'POST /swas/deploy 默认预演且返回计划');
+  check(preview.statusCode === 202 && typeof previewBody.jobId === 'string', 'POST /swas/deploy 返回任务号（异步执行）');
+
+  const jobRes = fakeRes();
+  handler(fakeReq({ url: `/swas/job?id=${previewBody.jobId}`, headers: sameOrigin }), jobRes);
+  const jobBody = JSON.parse(jobRes.body || '{}');
+  check(
+    jobRes.statusCode === 200 && jobBody.job && typeof jobBody.job.percent === 'number',
+    'GET /swas/job 返回进度（percent / phase）',
+  );
+
+  const badJob = fakeRes();
+  handler(fakeReq({ url: '/swas/job?id=not-exist', headers: sameOrigin }), badJob);
+  check(badJob.statusCode === 404, '未知任务 → 404');
 }
 
 
