@@ -154,6 +154,7 @@ window.__ModuleLoader__.load({
     // ── 零基础文案覆盖：同一批 key，换成说人话的说法 ─────────────────
     Object.assign(zh, {
       'header.hint': '说人话就能用',
+      'header.pill': 'SW 副驾',
       'header.expand': '打开助手',
       'header.collapse': '收起',
       'page.tagline': '把「你要做什么」写成 AI 能照着做的说明书：选模板 → 填数字 → 复制到对话框。',
@@ -213,6 +214,7 @@ window.__ModuleLoader__.load({
     });
     Object.assign(en, {
       'header.hint': 'Plain words, real parts',
+      'header.pill': 'SW Copilot',
       'header.expand': 'Open helper',
       'page.tagline': 'Turn "what I need" into instructions AI can follow: pick a template, fill the numbers, paste into the chat.',
       'guide.title': 'Three steps',
@@ -334,6 +336,35 @@ window.__ModuleLoader__.load({
         border: '1px solid var(--dsw-alias-border-l1)',
         background: 'var(--dsw-alias-bg-layer-1)',
       },
+      headerHost: { display: 'inline-flex', alignItems: 'center', position: 'relative' },
+      headerPill: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        height: 26,
+        padding: '0 10px',
+        borderRadius: 999,
+        border: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      },
+      headerPillActive: {
+        border: '1px solid var(--dsw-alias-label-primary)',
+        background: 'var(--dsw-alias-bg-layer-2)',
+      },
+      popover: {
+        position: 'fixed',
+        zIndex: 80,
+        width: 460,
+        maxWidth: '92vw',
+        maxHeight: '72vh',
+        boxShadow: '0 14px 40px rgba(0, 0, 0, 0.38)',
+      },
+      popoverBody: { maxHeight: '58vh', overflow: 'auto' },
       panel: {
         borderRadius: 12,
         border: '1px solid var(--dsw-alias-border-l1)',
@@ -1524,12 +1555,16 @@ window.__ModuleLoader__.load({
     function CopilotPanel(props) {
       const t = makeT(props);
       const inputActions = props.inputActions;
-      // defaultOpen / defaultTab 只是给预览与冒烟测试用的初始值，正常挂载时不传。
+      // 默认挂在会话标题栏（header）；variant="dock" 保留旧的内联形态，供测试与回退使用。
+      const isHeader = props.variant !== 'dock';
       const [open, setOpen] = useState(props.defaultOpen === true);
       const [tab, setTab] = useState(typeof props.defaultTab === 'string' ? props.defaultTab : 'templates');
       const [preview, setPreview] = useState('');
       const [flashMessage, setFlashMessage] = useState('');
+      const [anchor, setAnchor] = useState(null);
       const flashTimer = React.useRef(null);
+      const btnRef = React.useRef(null);
+      const panelRef = React.useRef(null);
 
       const flash = useCallback((message) => {
         setFlashMessage(message || '');
@@ -1543,6 +1578,40 @@ window.__ModuleLoader__.load({
         },
         [],
       );
+
+      // 面板用 fixed 定位贴住标题栏按钮，避免被标题栏的 overflow 裁掉。
+      const place = useCallback(() => {
+        if (typeof window === 'undefined' || !btnRef.current) return;
+        const rect = btnRef.current.getBoundingClientRect();
+        setAnchor({
+          top: Math.round(rect.bottom + 8),
+          right: Math.max(12, Math.round(window.innerWidth - rect.right)),
+        });
+      }, []);
+
+      const toggle = useCallback(() => {
+        if (!open) place();
+        setOpen(!open);
+      }, [open, place]);
+
+      React.useEffect(() => {
+        if (!open || !isHeader || typeof document === 'undefined') return undefined;
+        place();
+        const onDown = (event) => {
+          const insidePanel = panelRef.current && panelRef.current.contains(event.target);
+          const insideButton = btnRef.current && btnRef.current.contains(event.target);
+          if (!insidePanel && !insideButton) setOpen(false);
+        };
+        const onKey = (event) => {
+          if (event.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+          document.removeEventListener('mousedown', onDown);
+          document.removeEventListener('keydown', onKey);
+        };
+      }, [open, isHeader, place]);
 
       const insert = useCallback(
         (text) => {
@@ -1562,6 +1631,73 @@ window.__ModuleLoader__.load({
       const copy = useCopy(t, flash);
       const shared = { t: t, onInsert: insert, flash: flash, copy: copy };
 
+      const trigger = el(
+        'button',
+        {
+          ref: btnRef,
+          type: 'button',
+          title: t('header.title'),
+          'aria-expanded': open ? 'true' : 'false',
+          onClick: toggle,
+          style: Object.assign({}, styles.headerPill, open ? styles.headerPillActive : null),
+        },
+        el('span', { style: styles.dot }),
+        t('header.pill'),
+      );
+
+      const panel = el(
+        'div',
+        {
+          ref: panelRef,
+          style: isHeader
+            ? Object.assign({}, styles.panel, styles.popover, anchor || {})
+            : styles.panel,
+        },
+        el(
+          'div',
+          { style: styles.panelHead },
+          el('span', { style: styles.brand }, el('span', { style: styles.dot }), t('header.title')),
+          el(
+            'div',
+            { style: styles.tabRow },
+            TABS.map((item) =>
+              el(
+                'button',
+                {
+                  key: item.id,
+                  type: 'button',
+                  style: Object.assign({}, styles.tab, tab === item.id ? styles.tabActive : null),
+                  onClick: () => setTab(item.id),
+                },
+                t(item.labelKey),
+              ),
+            ),
+            el(Btn, { label: t('header.collapse'), onClick: () => setOpen(false) }),
+          ),
+        ),
+        el(
+          'div',
+          { style: isHeader ? Object.assign({}, styles.body, styles.popoverBody) : styles.body },
+          flashMessage !== '' ? el('div', { style: Object.assign({}, styles.meta, styles.flash) }, flashMessage) : null,
+          tab === 'templates'
+            ? el(TemplatesTab, Object.assign({ preview: preview, setPreview: setPreview, mode: 'header' }, shared))
+            : null,
+          tab === 'prompt' ? el(PromptTab, shared) : null,
+          tab === 'plan' ? el(PlanTab, shared) : null,
+          tab === 'tips' ? el(TipsTab, shared) : null,
+          tab === 'gate' ? el(GateTab, shared) : null,
+        ),
+      );
+
+      if (isHeader) {
+        return el(
+          'span',
+          { style: styles.headerHost },
+          trigger,
+          open ? panel : null,
+        );
+      }
+
       if (!open) {
         return el(
           'div',
@@ -1574,75 +1710,16 @@ window.__ModuleLoader__.load({
             el(
               'span',
               { style: Object.assign({}, styles.row, { marginLeft: 'auto' }) },
-              el(Chip, {
-                label: t('tab.templates'),
-                onClick: () => {
-                  setTab('templates');
-                  setOpen(true);
-                },
-              }),
-              el(Chip, {
-                label: t('tab.prompt'),
-                onClick: () => {
-                  setTab('prompt');
-                  setOpen(true);
-                },
-              }),
-              el(Chip, {
-                label: t('tab.tips'),
-                onClick: () => {
-                  setTab('tips');
-                  setOpen(true);
-                },
-              }),
+              el(Chip, { label: t('tab.templates'), onClick: () => { setTab('templates'); setOpen(true); } }),
+              el(Chip, { label: t('tab.prompt'), onClick: () => { setTab('prompt'); setOpen(true); } }),
+              el(Chip, { label: t('tab.tips'), onClick: () => { setTab('tips'); setOpen(true); } }),
               el(Btn, { label: t('header.expand'), onClick: () => setOpen(true) }),
             ),
           ),
         );
       }
 
-      return el(
-        'div',
-        { style: styles.root },
-        el(
-          'div',
-          { style: styles.panel },
-          el(
-            'div',
-            { style: styles.panelHead },
-            el('span', { style: styles.brand }, el('span', { style: styles.dot }), t('header.title')),
-            el(
-              'div',
-              { style: styles.tabRow },
-              TABS.map((item) =>
-                el(
-                  'button',
-                  {
-                    key: item.id,
-                    type: 'button',
-                    style: Object.assign({}, styles.tab, tab === item.id ? styles.tabActive : null),
-                    onClick: () => setTab(item.id),
-                  },
-                  t(item.labelKey),
-                ),
-              ),
-              el(Btn, { label: t('header.collapse'), onClick: () => setOpen(false) }),
-            ),
-          ),
-          el(
-            'div',
-            { style: styles.body },
-            flashMessage !== '' ? el('div', { style: Object.assign({}, styles.meta, styles.flash) }, flashMessage) : null,
-            tab === 'templates'
-              ? el(TemplatesTab, Object.assign({ preview: preview, setPreview: setPreview, mode: 'dock' }, shared))
-              : null,
-            tab === 'prompt' ? el(PromptTab, shared) : null,
-            tab === 'plan' ? el(PlanTab, shared) : null,
-            tab === 'tips' ? el(TipsTab, shared) : null,
-            tab === 'gate' ? el(GateTab, shared) : null,
-          ),
-        ),
-      );
+      return el('div', { style: styles.root }, panel);
     }
 
     /** 与 Host 的 matchTemplate 同构的轻量版本：只用于 PromptTab 的自动匹配。 */
@@ -1678,12 +1755,13 @@ window.__ModuleLoader__.load({
             }),
           'solidworks-copilot: dictionaries',
         );
-        ctx.slots.inject('conversation.composer.dock', () =>
+        // 主入口：会话标题栏右侧的「SW 副驾」按钮，点开是固定定位的浮动面板。
+        ctx.slots.inject('conversation.session.header.utilities', () =>
           ctx.slots.register(
             {
-              name: 'conversation.composer.dock',
+              name: 'conversation.session.header.utilities',
               id: NS,
-              order: 4,
+              order: -20,
               locale: NS,
               label: () => 'SolidWorks 副驾',
             },

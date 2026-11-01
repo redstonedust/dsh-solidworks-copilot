@@ -84,16 +84,16 @@ dsh plugin --profile web add github:redstonedust/dsh-solidworks-copilot
 plugin_manager({ action: 'install_bundle', target: '<本仓库绝对路径>' })
 ```
 
-两者都需要 Full access。然后**刷新页面**。会出现两个入口：左侧栏的 **SolidWorks 副驾** 图标，以及输入框下方的一条小卡。
+两者都需要 Full access。然后**刷新页面**。会出现两个入口：左侧栏的 **SolidWorks 副驾** 图标，以及**会话标题栏右侧**的 **SW 副驾** 按钮。
 
 还没有装技能的话，打开面板切到 **技能部署** 页：选客户端 → 点 **预演** 看计划 → 点 **确认部署**。目录已存在会被跳过，不会覆盖你手动装的副本。
 
 ### 第 2 步：打开面板
 
-点侧边栏图标就是整页工作台；不想离开对话，就直接用输入框下方那条：
+点侧边栏图标就是整页工作台；不想离开对话，就点会话标题栏右侧的 **SW 副驾** 按钮，面板会以浮层形式贴在按钮下方：
 
 <p align="center">
-  <img src="docs/images/dock.png" alt="输入框下方的小卡：选模板 / 一句话生成 / 避坑指南" width="760">
+  <img src="docs/images/dock.png" alt="会话标题栏右侧的 SW 副驾 按钮" width="820">
 </p>
 
 整页长这样（界面示意，不是截图）：
@@ -123,7 +123,7 @@ plugin_manager({ action: 'install_bundle', target: '<本仓库绝对路径>' })
 
 ### 第 6 步：回对话粘贴
 
-复制的内容直接扔进对话框发送即可。在输入框小卡里也可以点 **放进对话框**，直接写进输入框再回车。
+复制的内容直接扔进对话框发送即可。在标题栏的浮动面板里也可以点 **放进对话框**，直接写进输入框再回车。
 
 ### 第 7 步（可选）：让它先自证
 
@@ -152,7 +152,7 @@ node bin/swas.mjs install --target codex --dry-run
 
 | 层 | 内容 |
 |---|---|
-| **界面** | 侧边栏整页（7 个标签页，含「技能部署」）+ 输入框下方小卡，共用同一份知识库 |
+| **界面** | 侧边栏整页（7 个标签页，含「技能部署」）+ 会话标题栏的 **SW 副驾** 按钮与浮动面板，共用同一份知识库 |
 | **7 个工具** | `swas_templates` · `swas_prompt` · `swas_plan` · `swas_tips` · `swas_gate` · `swas_deploy` · `swas_status` |
 | **2 个 Agent 模式** | `swas-cad`（可写建模）· `swas-review`（只读交付复核） |
 | **内容** | 16 个 UI 模板 · 5 张需求书模板 · 60 条技巧 · 8 组门禁 · 9 段设计思路 · 18 条任务路由 |
@@ -412,7 +412,7 @@ NOTICE                衍生内容署名、商标与范围声明
 
 ## 关于
 
-**SolidWorks 副驾**是 [SolidWorks 自动化技能](https://github.com/wzyn20051216/solidworks-automation-skill) 的配套项目，由两部分组成：**DSH 插件**（侧边栏工作台 + 输入框小卡 + 7 个 Agent 工具）与**零依赖 CLI**（`install` / `agents` / `templates` / `prompt`），两者共用 16 个界面模板、5 张需求书模板、60 条技巧与 8 组门禁。它解决的是「AI 建模缺约束」：模板写死特征顺序、公差与验收证据，用户只需填数字，交付前过门禁；能力等级仍以上游 `capabilities.yaml` 为准。
+**SolidWorks 副驾**是 [SolidWorks 自动化技能](https://github.com/wzyn20051216/solidworks-automation-skill) 的配套项目，由两部分组成：**DSH 插件**（侧边栏工作台 + 标题栏浮动面板 + 7 个 Agent 工具）与**零依赖 CLI**（`install` / `agents` / `templates` / `prompt`），两者共用 16 个界面模板、5 张需求书模板、60 条技巧与 8 组门禁。它解决的是「AI 建模缺约束」：模板写死特征顺序、公差与验收证据，用户只需填数字，交付前过门禁；能力等级仍以上游 `capabilities.yaml` 为准。
 
 本项目为 **100% vibe coding**：代码、文档与测试全部由 AI 按自然语言指令生成，人工只负责需求、评审与验收，不手写实现。对外宣称的行为均经实跑验证（`smoke.mjs` 渲染各标签页，`selftest.mjs` 覆盖 7 个工具与边界输入）；上游 MIT 署名、部署默认关闭、`ref` 形态校验按常规工程处理。该标注说明实现来源，不构成质量背书。
 
@@ -499,7 +499,7 @@ NOTICE                衍生内容署名、商标与范围声明
 
 | 类型 | 具体想问什么 |
 |---|---|
-| 安装与面板 | 装完图标/小卡是否出现；刷新或重启后是否正常；`swas_status` 是否显示「已装配」 |
+| 安装与面板 | 装完图标/标题栏按钮是否出现；刷新或重启后是否正常；`swas_status` 是否显示「已装配」 |
 | 提示词质量 | 生成的说明书交给 AI 后，是否少问关键尺寸、少返工；哪一条约束其实没用 |
 | 部署 | 预演是否符合预期；`skip-exists` / `installed` 是否符合你的机器现状 |
 | 文档 | 哪一步看不懂、哪句像黑话、哪张图和实际界面对不上 |

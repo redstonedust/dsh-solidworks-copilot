@@ -174,20 +174,18 @@ def make_panel():
 
 # ─────────────────────────── 3. 输入框小卡 ───────────────────────────
 def make_dock():
-    W, H = 1000, 140
+    W, H = 1000, 132
     img = canvas(W, H)
     d = ImageDraw.Draw(img)
-    rounded(d, (20, 30, W - 20, 110), 12, fill=PANEL, outline=BORDER)
-    d.rectangle((44 * S, 60 * S, 56 * S, 72 * S), fill=ACCENT)
-    text(d, (70, 66), "SolidWorks 副驾", size=14, bold=True, anchor="lm")
-    text(d, (210, 67), "说人话就能用", size=11, color=MUTED, anchor="lm")
-    x = 640
-    for label in ["选模板", "一句话生成", "避坑指南"]:
-        w = 24 + len(label) * 12
-        pill(d, (x, 52, x + w, 82), label)
-        x += w + 10
-    button(d, (870, 50, 968, 84), "打开助手", primary=False, size=12)
-    text(d, (W / 2, 122), "收起来只有一行，点一下展开", size=11, color=DIM, anchor="mm")
+    rounded(d, (20, 22, W - 20, 96), 12, fill=PANEL, outline=BORDER)
+    text(d, (44, 59), "SolidWorks 自动化插件开发", size=15, bold=True, anchor="lm")
+    x = 540
+    for label in ["智能体团队", "创造模式", "3 个子智能体"]:
+        w = 26 + len(label) * 13
+        pill(d, (x, 44, x + w, 74), label)
+        x += w + 8
+    pill(d, (x + 10, 44, x + 128, 74), "SW 副驾", active=True)
+    text(d, (W / 2, 112), "会话标题栏右侧的按钮，点开就是浮动面板", size=11, color=DIM, anchor="mm")
     img.save(os.path.join(OUT, "dock.png"))
     return img
 

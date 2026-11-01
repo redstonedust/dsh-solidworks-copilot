@@ -93,18 +93,18 @@ const ctx = {
 mod.apply(ctx);
 check(localeCalls === 1, '注册了一次语言包');
 check(
-  injectedSlots.join(',') === 'conversation.composer.dock,sidebar.panellist,main',
+  injectedSlots.join(',') === 'conversation.session.header.utilities,sidebar.panellist,main',
   `注入三个 slot：${injectedSlots.join(',')}`,
 );
-const dock = registrations.find((item) => item.options.name === 'conversation.composer.dock');
+const header = registrations.find((item) => item.options.name === 'conversation.session.header.utilities');
 const panelRow = registrations.find((item) => item.options.name === 'sidebar.panellist');
 const page = registrations.find((item) => item.options.name === 'main');
-check(dock && dock.options.id === 'solidworks-copilot', `dock 注册 id = ${dock && dock.options.id}`);
-check(dock && dock.options.locale === 'solidworks-copilot', 'dock 注册带 locale 命名空间');
+check(header && header.options.id === 'solidworks-copilot', `标题栏注册 id = ${header && header.options.id}`);
+check(header && header.options.locale === 'solidworks-copilot', '标题栏注册带 locale 命名空间');
 check(panelRow && panelRow.options.id === 'solidworks-copilot', '侧边栏面板行注册成功');
 check(panelRow && typeof panelRow.options.label === 'function', '侧边栏面板行有 label thunk');
 check(page && page.options.key === 'solidworks-copilot', '主面板 key = solidworks-copilot');
-check([dock, panelRow, page].every((item) => item && typeof item.Component === 'function'), '三个组件都是函数组件');
+check([header, panelRow, page].every((item) => item && typeof item.Component === 'function'), '三个组件都是函数组件');
 
 // ── 3. 逐标签页 SSR 渲染 ─────────────────────────────────────────
 const t = (key) => key;
@@ -116,7 +116,7 @@ const baseProps = {
 };
 
 function render(props) {
-  const html = renderToStaticMarkup(React.createElement(dock.Component, Object.assign({}, baseProps, props)));
+  const html = renderToStaticMarkup(React.createElement(header.Component, Object.assign({}, baseProps, props)));
   return html;
 }
 
@@ -133,7 +133,7 @@ const tabs = ['templates', 'prompt', 'plan', 'tips', 'gate'];
 let collapsed = '';
 try {
   collapsed = render({});
-  check(collapsed.includes('SolidWorks 副驾') && collapsed.includes('打开助手'), '收起态渲染出中文标题与展开按钮');
+  check(collapsed.includes('SW 副驾') && collapsed.includes('aria-expanded'), '标题栏按钮渲染出中文标签与展开状态');
   check(!/\b(header|common|tab|templates|prompt|plan|tips|gate|modes|unit)\.[a-z]/.test(collapsed), '收起态没有漏出 i18n key');
 } catch (error) {
   failures.push(`收起态渲染抛错：${error.message}`);
