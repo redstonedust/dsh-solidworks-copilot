@@ -158,7 +158,7 @@ const tipsHtml = render({ defaultOpen: true, defaultTab: 'tips' });
 check(tipsHtml.includes('搜：单位、圆角'), '技巧页有中文搜索占位符');
 
 // 主面板（侧边栏页面）逐标签页渲染
-const pageTabs = ['templates', 'prompt', 'plan', 'tips', 'gate', 'deploy', 'modes'];
+const pageTabs = ['templates', 'prompt', 'plan', 'tips', 'gate', 'vision', 'deploy', 'modes'];
 const LEAK = /\b(header|common|tab|templates|prompt|plan|tips|gate|modes|unit|flash)\.[a-z][a-zA-Z]/;
 for (const pageTab of pageTabs) {
   try {

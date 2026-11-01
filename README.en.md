@@ -30,6 +30,7 @@ dsh plugin --profile web add github:redstonedust/dsh-solidworks-copilot
 - [Permissions, external services and compatibility](#permissions-external-services-and-compatibility)
 - [CLI](#cli)
 - [Tools](#tools)
+- [Image recognition and reasoning](#image-recognition-and-reasoning)
 - [Agent presets](#agent-presets)
 - [Troubleshooting](#troubleshooting)
 - [Build and test](#build-and-test)
@@ -281,6 +282,55 @@ A typical chain:
 2. `swas_templates({ action: 'routing', query: 'mounting plate, four M6 counterbores' })` — which script, which reference doc.
 3. `swas_prompt({ task: '…', template: 'mounting-bracket', params: { size: '120×80×10' } })` — the executable spec.
 4. Run it, read the evidence back, then `swas_gate({ workflow: 'mounting_bracket' })`.
+
+---
+
+## Image recognition and reasoning
+
+The panel has a **Vision** tab: drop in a part photo, a SolidWorks screenshot or a drawing, and a
+reasoning model extracts modelable features plus a suggested template and parameters.
+
+Flow:
+
+1. pick an image (PNG / JPEG / WebP / GIF, ≤ 8 MB);
+2. optionally add one line of extra instructions ("focus on hole positions and thickness");
+3. press **Analyze** — the host stores the image in the local attachment store, forwards it to the
+   model, and returns structured JSON:
+   `part / summary / template / confidence / features[] / dimensions / params / open_questions`;
+4. **Generate prompt from this template** jumps to the matched template with the parsed parameters
+   pre-filled; anything still missing is reported as usual.
+
+**Reasoning pane.** Below the result there is always a *Reasoning and logs* block:
+
+| Section | Content |
+|---|---|
+| Stage log | image received → attachment saved → model selected → first token → finish → JSON parsed, each with a millisecond timestamp |
+| Reasoning | the model's reasoning text (when the model emits it) |
+| Raw output | the unmodified answer, for comparison with the parsed result |
+| Usage | input / output / reasoning tokens, elapsed time, provider and model actually used |
+
+**Model and key.** By default it uses the **Harness default model** — i.e. the harness-managed key;
+the plugin never asks you for a secret. To pin or change the model:
+
+- edit the *Model* field in the page (`provider/model`) — applies to that request only;
+- or set it in configuration:
+
+```yaml
+config:
+  visionProvider: deepseek
+  visionModel: deepseek-chat
+  visionEffort: high   # optional reasoning effort
+```
+
+Routes (same-origin panel requests only):
+
+| Route | Purpose |
+|---|---|
+| `POST /swas/vision` | image + optional model/question → features JSON, reasoning, logs |
+| `GET /swas/models` | Harness default selection, providers and model list |
+
+Privacy: the image is written to the local attachment store; it leaves the machine only when you
+press **Analyze**, and only to the model provider you configured.
 
 ---
 

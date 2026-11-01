@@ -152,7 +152,7 @@ node bin/swas.mjs install --target codex --dry-run
 
 | 层 | 内容 |
 |---|---|
-| **界面** | 侧边栏整页（7 个标签页，含「技能部署」）+ 会话标题栏的 **SW 副驾** 按钮与浮动面板，共用同一份知识库 |
+| **界面** | 侧边栏整页（8 个标签页，含「图片识别」「技能部署」）+ 会话标题栏的 **SW 副驾** 按钮与浮动面板，共用同一份知识库 |
 | **7 个工具** | `swas_templates` · `swas_prompt` · `swas_plan` · `swas_tips` · `swas_gate` · `swas_deploy` · `swas_status` |
 | **2 个 Agent 模式** | `swas-cad`（可写建模）· `swas-review`（只读交付复核） |
 | **内容** | 16 个 UI 模板 · 5 张需求书模板 · 60 条技巧 · 8 组门禁 · 9 段设计思路 · 18 条任务路由 |
@@ -309,6 +309,50 @@ swas_status     { }
 2. `swas_templates({ action: 'routing', query: '安装板，四个 M6 沉孔' })` —— 该用哪个脚本、看哪篇文档；
 3. `swas_prompt({ task: '…', template: 'mounting-bracket', params: { size: '120×80×10' } })` —— 可执行需求书；
 4. 跑完回读证据，最后 `swas_gate({ workflow: 'mounting_bracket' })` 过门禁。
+
+---
+
+## 图片识别与思考过程
+
+面板新增 **图片识别** 标签页：把零件照片、SolidWorks 截图或工程图丢进去，由一个思考模型提取可建模的特征，并给出建议模板与参数。
+
+流程：
+
+1. 选图（PNG / JPEG / WebP / GIF，≤ 8 MB）；
+2. 可选填一句补充要求，例如「只关心孔位与板厚」；
+3. 点 **识别特征**——宿主把图片存进本机附件库、转发给模型，返回结构化 JSON：
+   `part / summary / template / confidence / features[] / dimensions / params / open_questions`；
+4. 面板直接给出 **用这个模板生成提示词**：把你带到对应模板，参数用识别结果预填，缺的仍会点名。
+
+**思考过程栏位**：结果下方固定有一块「思考过程与日志」，包含
+
+| 区块 | 内容 |
+|---|---|
+| 阶段日志 | 收到图片 → 保存附件 → 选择模型 → 首 token → 结束 → JSON 解析，每行带毫秒时间戳 |
+| 思考内容 | 模型返回的 reasoning 文本（模型支持时才有） |
+| 原始输出 | 未加工的模型回答，方便对照解析结果 |
+| 用量 | input / output / reasoning tokens 与总耗时、实际使用的 provider/model |
+
+**模型与 key**：默认使用 **Harness 当前的默认模型**（即 Harness 托管的 key），不需要你在插件里填任何密钥。想固定或换模型，两条路：
+
+- 页面里直接改「识别模型」输入框（`provider/model`），只影响这一次请求；
+- 配置文件里写死：
+
+```yaml
+config:
+  visionProvider: deepseek
+  visionModel: deepseek-chat
+  visionEffort: high   # 可选，思考强度
+```
+
+对应路由（同样只接受面板同源请求）：
+
+| 路由 | 作用 |
+|---|---|
+| `POST /swas/vision` | 图片 + 可选模型/问题 → 特征 JSON + 思考内容 + 日志 |
+| `GET /swas/models` | Harness 当前默认模型、可用 provider 与模型列表 |
+
+隐私：图片只写进本机附件库；只有你点「识别特征」时，才会把这张图发给你配置的模型提供方。
 
 ---
 

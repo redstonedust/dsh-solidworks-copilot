@@ -5,7 +5,7 @@
  * 用法：node scripts/selftest.mjs
  */
 
-import { apply } from '../index.js';
+import { apply, runVision } from '../index.js';
 
 const failures = [];
 const results = [];
@@ -111,6 +111,27 @@ if (routes.length === 1) {
   const badJob = fakeRes();
   handler(fakeReq({ url: '/swas/job?id=not-exist', headers: sameOrigin }), badJob);
   check(badJob.statusCode === 404, '未知任务 → 404');
+
+  // 视觉路由：模型服务由宿主提供；桩 ctx 没有 llm/attachments，应返回可读错误而不是崩
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+
+  const modelsRes = fakeRes();
+  handler(fakeReq({ url: '/swas/models', headers: sameOrigin }), modelsRes);
+  await tick();
+  const modelsBody = JSON.parse(modelsRes.body || '{}');
+  check(modelsRes.statusCode === 200 && modelsBody.ok === true, 'GET /swas/models 返回模型目录');
+
+  const visionRes = fakeRes();
+  handler(
+    fakeReq({ method: 'POST', url: '/swas/vision', headers: sameOrigin, body: JSON.stringify({}) }),
+    visionRes,
+  );
+  await tick();
+  const visionBody = JSON.parse(visionRes.body || '{}');
+  check(
+    visionRes.statusCode === 200 && visionBody.ok === false && typeof visionBody.error === 'string',
+    'POST /swas/vision 缺图片/缺服务时返回可读错误',
+  );
 }
 
 
@@ -198,6 +219,60 @@ check(dryDeploy.text.includes('部署计划'), '默认 dryRun=true 只打印计�
 
 const gates = await registered.get('swas_gate').execute({ workflow: 'assembly_mates' });
 check(Array.isArray(gates.gates) && gates.gates.length > 0, '工作流能过滤出门禁');
+
+// ── 视觉识别链路：用桩 llm/attachments 验证消息结构与解析 ─────────
+const pngBase64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+let seenOptions = null;
+const visionCtx = {
+  get(name) {
+    if (name === 'attachments') {
+      return {
+        saveImage: async (input) => ({
+          attachmentId: 'att-1',
+          mediaType: input.mediaType,
+          bytes: input.data.length,
+          width: 640,
+          height: 420,
+          name: input.name,
+        }),
+      };
+    }
+    if (name === 'llm') {
+      return {
+        stream: (options) => {
+          seenOptions = options;
+          return (async function* generate() {
+            yield { type: 'reasoning-delta', index: 0, text: '先看轮廓，再数孔。' };
+            yield { type: 'text-delta', index: 1, text: '{"part":"安装板","summary":"四角带孔', };
+            yield { type: 'text-delta', index: 1, text: '的板件","template":"mounting-bracket","confidence":0.72,"features":[{"type":"hole","spec":"Ø7 通孔","count":4}],"params":{"size":"120x80x10"},"open_questions":["板厚未知"]}' };
+            yield { type: 'usage', usage: { inputTokens: 1200, outputTokens: 80 } };
+            yield { type: 'finish', reason: { kind: 'stop' } };
+          })();
+        },
+      };
+    }
+    if (name === 'agentDefaultModel') {
+      return { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat', reasoningEffort: 'high' }) };
+    }
+    return undefined;
+  },
+};
+
+const visionResult = await runVision(
+  visionCtx,
+  { imageBase64: pngBase64, mediaType: 'image/png', name: 'test.png' },
+  {},
+);
+check(visionResult.ok === true, '视觉识别链路返回 ok');
+check(visionResult.features && visionResult.features.template === 'mounting-bracket', '视觉输出解析出结构化 JSON');
+check(visionResult.reasoning.includes('先看轮廓'), '思考内容被收集');
+check(Array.isArray(visionResult.logs) && visionResult.logs.length >= 4, '阶段日志被记录');
+check(
+  seenOptions && seenOptions.messages[0].content.some((block) => block.type === 'image'),
+  '请求里包含 image block',
+);
+check(seenOptions && seenOptions.model === 'deepseek-chat', '默认模型来自 Harness 选择');
 
 // ── 汇总 ─────────────────────────────────────────────────────────
 const slow = results.filter((row) => row.ms > 200);

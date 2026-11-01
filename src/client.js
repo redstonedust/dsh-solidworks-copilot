@@ -251,6 +251,29 @@ window.__ModuleLoader__.load({
       'deploy.phase.write': '写入目标目录',
       'deploy.phase.done': '完成',
       'deploy.phase.failed': '失败',
+      'tab.vision': '图片识别',
+      'vision.hint': '上传零件照片、SolidWorks 截图或工程图，调用思考模型识别特征，并给出建议模板与参数。',
+      'vision.pick': '选择图片',
+      'vision.analyze': '识别特征',
+      'vision.analyzing': '识别中…',
+      'vision.question': '补充要求（可选）',
+      'vision.questionPlaceholder': '例：只关心孔位与板厚，忽略表面处理',
+      'vision.model': '识别模型',
+      'vision.followDefault': '跟随 Harness 默认',
+      'vision.override': '已手动指定',
+      'vision.result': '识别结果',
+      'vision.confidence': '置信度',
+      'vision.questions': '待确认',
+      'vision.useTemplate': '用这个模板生成提示词',
+      'vision.showTrace': '展开思考过程',
+      'vision.hideTrace': '收起思考过程',
+      'vision.trace': '思考过程与日志',
+      'vision.usage': '用量',
+      'vision.logs': '阶段日志',
+      'vision.reasoning': '思考内容',
+      'vision.answer': '模型原始输出',
+      'vision.error': '识别失败',
+      'vision.noResult': '先选一张图片',
     });
     Object.assign(en, {
       'tab.deploy': 'Deploy',
@@ -273,6 +296,29 @@ window.__ModuleLoader__.load({
       'deploy.phase.write': 'Writing target directory',
       'deploy.phase.done': 'Done',
       'deploy.phase.failed': 'Failed',
+      'tab.vision': 'Vision',
+      'vision.hint': 'Upload a part photo, a SolidWorks screenshot or a drawing; a reasoning model extracts features and suggests a template plus parameters.',
+      'vision.pick': 'Choose image',
+      'vision.analyze': 'Analyze',
+      'vision.analyzing': 'Analyzing…',
+      'vision.question': 'Extra instructions (optional)',
+      'vision.questionPlaceholder': 'e.g. focus on hole positions and thickness, ignore surface finish',
+      'vision.model': 'Model',
+      'vision.followDefault': 'following Harness default',
+      'vision.override': 'manual override',
+      'vision.result': 'Result',
+      'vision.confidence': 'confidence',
+      'vision.questions': 'Open questions',
+      'vision.useTemplate': 'Generate prompt from this template',
+      'vision.showTrace': 'Show reasoning',
+      'vision.hideTrace': 'Hide reasoning',
+      'vision.trace': 'Reasoning and logs',
+      'vision.usage': 'Usage',
+      'vision.logs': 'Stage log',
+      'vision.reasoning': 'Reasoning',
+      'vision.answer': 'Raw model output',
+      'vision.error': 'Analysis failed',
+      'vision.noResult': 'Pick an image first',
     });
 
     /** 分类与难度的中文说法（数据本身是中文，界面不暴露英文枚举）。 */
@@ -524,6 +570,24 @@ window.__ModuleLoader__.load({
         transition: 'width 260ms ease',
       },
       progressMeta: { display: 'flex', alignItems: 'center', marginTop: 5, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' },
+      visionPreview: {
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        padding: 8,
+        marginBottom: 10,
+        borderRadius: 10,
+        border: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-bg-layer-2)',
+      },
+      visionThumb: {
+        width: 120,
+        height: 90,
+        objectFit: 'contain',
+        borderRadius: 8,
+        background: 'var(--dsw-alias-bg-base)',
+        border: '1px solid var(--dsw-alias-border-l1)',
+      },
       sectionTitle: { fontWeight: 600, fontSize: 12, margin: '10px 0 4px' },
       bullet: { margin: '2px 0', paddingLeft: 14, position: 'relative', lineHeight: 1.55 },
       page: {
@@ -1445,12 +1509,217 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 图片识别页：上传零件照片/截图 → 宿主调用思考模型 → 结构化特征 + 思考过程日志。
+     * 模型默认跟随 Harness 的默认选择，也可以在下拉里手动指定。
+     */
+    function VisionTab(props) {
+      const { t } = props;
+      const [file, setFile] = useState(null);
+      const [question, setQuestion] = useState('');
+      const [model, setModel] = useState('');
+      const [selection, setSelection] = useState(null);
+      const [providers, setProviders] = useState([]);
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState('');
+      const [result, setResult] = useState(null);
+      const [showTrace, setShowTrace] = useState(true);
+      const fileRef = React.useRef(null);
+
+      const request = useCallback(async (path, options) => {
+        const response = await fetch(path, Object.assign(
+          { credentials: 'same-origin', headers: { 'x-swas-client': 'ui', 'content-type': 'application/json' } },
+          options,
+        ));
+        return response.json();
+      }, []);
+
+      React.useEffect(() => {
+        let alive = true;
+        request('/swas/models')
+          .then((data) => {
+            if (!alive || !data.ok) return;
+            setSelection(data.selection || null);
+            setProviders(data.providers || []);
+            if (!model && data.selection && data.selection.model) setModel(data.selection.model);
+          })
+          .catch(() => {});
+        return () => {
+          alive = false;
+        };
+      }, [request]);
+
+      const pick = useCallback((event) => {
+        const picked = event.target.files && event.target.files[0];
+        if (!picked) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = String(reader.result || '');
+          const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : '';
+          setFile({ dataUrl, base64, mediaType: picked.type || 'image/png', name: picked.name });
+          setResult(null);
+          setError('');
+        };
+        reader.readAsDataURL(picked);
+      }, []);
+
+      const analyze = useCallback(async () => {
+        if (!file) {
+          setError(t('vision.noResult'));
+          return;
+        }
+        setBusy(true);
+        setError('');
+        setResult(null);
+        try {
+          const data = await request('/swas/vision', {
+            method: 'POST',
+            body: JSON.stringify({
+              imageBase64: file.base64,
+              mediaType: file.mediaType,
+              name: file.name,
+              model: model || undefined,
+              question: question || undefined,
+            }),
+          });
+          if (!data.ok) throw new Error(data.error || t('vision.error'));
+          setResult(data);
+        } catch (cause) {
+          setError(String(cause && cause.message ? cause.message : cause));
+        } finally {
+          setBusy(false);
+        }
+      }, [file, model, question, request, t]);
+
+      const features = result && result.features ? result.features : null;
+      const matched = features
+        ? (DATA.templates || []).find((item) => item.id === features.template)
+        : null;
+
+      const buildPrompt = useCallback(() => {
+        const template = matched || (DATA && DATA.fallbackTemplate);
+        if (!template) return '';
+        const taskText = features
+          ? [features.part, features.summary].filter(Boolean).join('：')
+          : '';
+        const values = features && features.params ? features.params : {};
+        return fillPrompt(template.promptFull, template, taskText, values);
+      }, [features, matched]);
+
+      return el(
+        'div',
+        null,
+        el('div', { style: styles.meta }, t('vision.hint')),
+        el(
+          'div',
+          { style: Object.assign({}, styles.row, { margin: '10px 0' }) },
+          el('input', {
+            ref: fileRef,
+            type: 'file',
+            accept: 'image/png,image/jpeg,image/webp,image/gif',
+            style: { display: 'none' },
+            onChange: pick,
+          }),
+          el(Btn, { kind: 'primary', label: t('vision.pick'), onClick: () => fileRef.current && fileRef.current.click() }),
+          el(Btn, { kind: 'primary', label: busy ? t('vision.analyzing') : t('vision.analyze'), onClick: analyze, disabled: busy }),
+          el('span', { style: styles.meta }, t('vision.model')),
+          el('input', {
+            style: Object.assign({}, styles.input, { width: 200 }),
+            value: model,
+            placeholder: selection ? `${selection.provider}/${selection.model}` : 'provider/model',
+            onChange: (event) => setModel(event.target.value),
+          }),
+          model !== '' && selection && model !== selection.model
+            ? el('span', { style: styles.meta }, t('vision.override'))
+            : el('span', { style: styles.meta }, t('vision.followDefault')),
+        ),
+        file
+          ? el(
+              'div',
+              { style: styles.visionPreview },
+              el('img', { src: file.dataUrl, alt: file.name, style: styles.visionThumb }),
+              el(
+                'div',
+                { style: { flex: 1, minWidth: 0 } },
+                el('div', { style: styles.cardTitle }, file.name),
+                el('div', { style: styles.meta }, `${file.mediaType} · ${Math.round((file.base64.length * 3) / 4 / 1024)} KB`),
+                el(
+                  'div',
+                  { style: Object.assign({}, styles.field, { marginTop: 6 }) },
+                  el('label', { style: styles.label }, t('vision.question')),
+                  el('input', {
+                    style: styles.input,
+                    value: question,
+                    placeholder: t('vision.questionPlaceholder'),
+                    onChange: (event) => setQuestion(event.target.value),
+                  }),
+                ),
+              ),
+            )
+          : null,
+        error !== '' ? el('div', { style: Object.assign({}, styles.card, { marginBottom: 8 }) }, el('div', { style: styles.cardTitle }, t('vision.error')), el('div', { style: styles.meta }, error)) : null,
+        result && features
+          ? el(
+              'div',
+              { style: styles.card },
+              el(
+                'div',
+                { style: styles.row },
+                el('span', { style: styles.cardTitle }, features.part || t('vision.result')),
+                el('span', { style: styles.tag }, `${t('vision.confidence')} ${typeof features.confidence === 'number' ? features.confidence : '—'}`),
+                matched ? el('span', { style: styles.tag }, matched.name) : null,
+                el('span', { style: Object.assign({}, styles.meta, { marginLeft: 'auto' }) }, `${result.provider}/${result.model} · ${result.elapsedMs}ms`),
+              ),
+              features.summary ? el('div', { style: Object.assign({}, styles.meta, { margin: '6px 0' }) }, features.summary) : null,
+              (features.features || []).map((item, index) =>
+                el(
+                  'div',
+                  { key: index, style: styles.meta },
+                  `· ${item.type || 'feature'}${item.spec ? `：${item.spec}` : ''}${item.count ? ` × ${item.count}` : ''}${item.notes ? `（${item.notes}）` : ''}`,
+                ),
+              ),
+              features.open_questions && features.open_questions.length > 0
+                ? el('div', { style: Object.assign({}, styles.meta, { marginTop: 6 }) }, `${t('vision.questions')}：${features.open_questions.join('；')}`)
+                : null,
+              el(
+                'div',
+                { style: Object.assign({}, styles.row, { marginTop: 8 }) },
+                el(Btn, { kind: 'primary', label: t('vision.useTemplate'), onClick: () => props.onInsert(buildPrompt()) }),
+                el(Btn, { label: t('common.copy'), onClick: () => props.copy(result.answer || '') }),
+                el(Btn, { label: showTrace ? t('vision.hideTrace') : t('vision.showTrace'), onClick: () => setShowTrace(!showTrace) }),
+              ),
+            )
+          : null,
+        result && showTrace
+          ? el(
+              'div',
+              { style: Object.assign({}, styles.card, { marginTop: 8 }) },
+              el('div', { style: styles.cardTitle }, t('vision.trace')),
+              el('div', { style: styles.meta }, `${result.provider}/${result.model}${result.reasoningEffort ? ` · effort=${result.reasoningEffort}` : ''} · ${result.elapsedMs}ms`),
+              result.usage
+                ? el('div', { style: styles.meta }, `${t('vision.usage')}：in ${result.usage.inputTokens} / out ${result.usage.outputTokens}${result.usage.reasoningTokens ? ` / reasoning ${result.usage.reasoningTokens}` : ''}`)
+                : null,
+              el('div', { style: styles.sectionTitle }, t('vision.logs')),
+              el('pre', { style: styles.pre }, (result.logs || []).map((line) => `[${line.at}] ${line.text}`).join('\n')),
+              result.reasoning
+                ? el('div', null,
+                    el('div', { style: styles.sectionTitle }, t('vision.reasoning')),
+                    el('pre', { style: styles.pre }, result.reasoning))
+                : null,
+              el('div', { style: styles.sectionTitle }, t('vision.answer')),
+              el('pre', { style: styles.pre }, result.answer || ''),
+            )
+          : null,
+      );
+    }
+
     const PAGE_TABS = [
       { id: 'templates', labelKey: 'tab.templates' },
       { id: 'prompt', labelKey: 'tab.prompt' },
       { id: 'plan', labelKey: 'tab.plan' },
       { id: 'tips', labelKey: 'tab.tips' },
       { id: 'gate', labelKey: 'tab.gate' },
+      { id: 'vision', labelKey: 'tab.vision' },
       { id: 'deploy', labelKey: 'tab.deploy' },
       { id: 'modes', labelKey: 'tab.modes' },
     ];
@@ -1538,6 +1807,7 @@ window.__ModuleLoader__.load({
           tab === 'plan' ? el(PlanTab, shared) : null,
           tab === 'tips' ? el(TipsTab, shared) : null,
           tab === 'gate' ? el(GateTab, shared) : null,
+          tab === 'vision' ? el(VisionTab, shared) : null,
           tab === 'deploy' ? el(DeployTab, shared) : null,
           tab === 'modes' ? el(AgentModesTab, shared) : null,
         ),

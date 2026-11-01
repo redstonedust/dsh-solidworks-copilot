@@ -121,11 +121,156 @@ function startDeployJob(target, dryRun, force) {
   return job;
 }
 
+/** 视觉识别用的系统提示词：只输出 JSON，便于面板直接填模板参数。 */
+const VISION_SYSTEM = [
+  '你是机械零件图纸识别助手。看用户给的图片（照片、截图、工程图、SolidWorks 视口均可），提取可建模的特征。',
+  '只输出一个 JSON 对象，不要写解释、不要用 Markdown 代码块。字段如下：',
+  '{',
+  '  "part": "零件名（中文，简短）",',
+  '  "summary": "一句话描述这是什么、看起来做什么用",',
+  '  "template": "建议模板 id，从 [mounting-bracket, stepped-shaft, flange-end-cap, spur-gear-m2-z24, threaded-hole-m6, counterbore-countersink-slot, cnc-fillet-bracket, enclosure, sheet-metal-u-bracket, assembly-mates, motion-study-rotary, gb-drawing-a3, batch-export-delivery, open-helical-spring, sprocket-cosmetic, dfm-fea-review] 里选一个，拿不准就选 mounting-bracket",',
+  '  "confidence": 0.0 到 1.0 的数字,',
+  '  "features": [{ "type": "hole|slot|boss|pocket|fillet|chamfer|thread|gear|shell|flange|shaft", "spec": "Ø7 通孔 / M6 沉孔 / R6 圆角 …", "count": 数字, "notes": "位置或判断依据" }],',
+  '  "dimensions": { "length_mm": 数字或 null, "width_mm": null, "height_mm": null, "thickness_mm": null },',
+  '  "params": { "模板参数字段名": "值" },',
+  '  "open_questions": ["还需要用户确认的点"]',
+  '}',
+  '看不清就写 null 或放进 open_questions，不要编造精确尺寸。',
+].join('\n');
+
+/** 从模型输出里抠出第一个 JSON 对象；解析失败返回 null。 */
+function extractJson(text) {
+  const source = String(text || '');
+  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : source;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+/** 读请求体（带大小上限）。 */
+function readJsonBody(req, limit = 12 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > limit) {
+        reject(new Error('请求体超过上限'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body || '{}'));
+      } catch (error) {
+        reject(new Error('请求体不是合法 JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/** 调宿主 llm 服务做一次图片识别，返回结构化特征 + 思考/日志。 */
+export async function runVision(ctx, input, config) {
+  const attachments = typeof ctx.get === 'function' ? ctx.get('attachments') : undefined;
+  const llm = typeof ctx.get === 'function' ? ctx.get('llm') : undefined;
+  const defaultModel = typeof ctx.get === 'function' ? ctx.get('agentDefaultModel') : undefined;
+  if (!attachments || typeof attachments.saveImage !== 'function') throw new Error('宿主没有 attachments 服务，无法保存图片');
+  if (!llm || typeof llm.stream !== 'function') throw new Error('宿主没有 llm 服务，无法调用识别模型');
+
+  const logs = [];
+  const startedAt = Date.now();
+  const stamp = () => `${Date.now() - startedAt}ms`;
+  const mediaType = String(input.mediaType || 'image/png');
+  const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+  if (!allowed.includes(mediaType)) throw new Error(`不支持的图片类型：${mediaType}`);
+  const raw = String(input.imageBase64 || '').replace(/^data:[^;]+;base64,/, '');
+  const bytes = Buffer.from(raw, 'base64');
+  if (bytes.length === 0) throw new Error('图片内容为空');
+  if (bytes.length > 8 * 1024 * 1024) throw new Error('图片超过 8 MB');
+
+  logs.push({ at: stamp(), text: `收到图片 ${(bytes.length / 1024).toFixed(1)} KB（${mediaType}）` });
+  const ref = await attachments.saveImage({ data: new Uint8Array(bytes), mediaType, name: input.name || 'cad-vision' });
+  logs.push({ at: stamp(), text: `已保存为附件 ${String(ref.attachmentId).slice(0, 12)}…（${ref.width}×${ref.height}）` });
+
+  const selection = defaultModel && typeof defaultModel.currentSelection === 'function'
+    ? defaultModel.currentSelection()
+    : { provider: 'deepseek', model: 'deepseek-chat', reasoningEffort: undefined };
+  const provider = String(input.provider || config.visionProvider || selection.provider || 'deepseek');
+  const model = String(input.model || config.visionModel || selection.model || '');
+  const effort = input.reasoningEffort || config.visionEffort || selection.reasoningEffort || undefined;
+  logs.push({ at: stamp(), text: `使用模型 ${provider}/${model}${effort ? `（effort=${effort}）` : ''}` });
+
+  const question = String(input.question || '').trim();
+  const userText = [
+    '识别这张图片里的机械零件特征，按系统提示的 JSON 结构输出。',
+    question ? `额外要求：${question}` : '',
+  ].filter(Boolean).join('\n');
+
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'text', text: userText },
+      { type: 'image', attachment: ref },
+    ],
+  }];
+
+  let answer = '';
+  let reasoning = '';
+  let usage = null;
+  let finish = null;
+  let firstTokenAt = null;
+  for await (const chunk of llm.stream({
+    provider,
+    model,
+    ...(effort ? { reasoningEffort: effort } : {}),
+    system: VISION_SYSTEM,
+    messages,
+    maxTokens: Number.isFinite(input.maxTokens) ? input.maxTokens : 1500,
+  })) {
+    if (chunk.type === 'text-delta') {
+      if (firstTokenAt === null) firstTokenAt = Date.now();
+      answer += chunk.text;
+    } else if (chunk.type === 'reasoning-delta') {
+      if (firstTokenAt === null) firstTokenAt = Date.now();
+      reasoning += chunk.text;
+    } else if (chunk.type === 'usage') {
+      usage = chunk.usage;
+    } else if (chunk.type === 'finish') {
+      finish = chunk.reason;
+    }
+  }
+  if (firstTokenAt !== null) logs.push({ at: `${firstTokenAt - startedAt}ms`, text: '收到首个 token' });
+  logs.push({ at: stamp(), text: `模型结束：${finish && finish.kind ? finish.kind : 'stop'}` });
+
+  const features = extractJson(answer);
+  logs.push({ at: stamp(), text: features ? '已解析出结构化 JSON' : '模型没有返回合法 JSON，保留原文' });
+
+  return {
+    ok: true,
+    provider,
+    model,
+    reasoningEffort: effort || null,
+    reasoning,
+    answer,
+    features,
+    usage,
+    finishKind: finish && finish.kind ? finish.kind : 'stop',
+    elapsedMs: Date.now() - startedAt,
+    logs,
+  };
+}
+
 /**
  * 面板专用路由：同源 POST 才能触发，避免任何本地进程随意调用。
  * 浏览器同源请求会带 sec-fetch-site: same-origin，curl/脚本默认不带。
  */
-function createDeployHandler() {
+function createDeployHandler(ctx, config = {}) {
   return (req, res) => {
     const send = (status, body) => {
       res.statusCode = status;
@@ -184,6 +329,41 @@ function createDeployHandler() {
         const job = startDeployJob(target, dryRun, input.force === true);
         return send(202, { ok: true, jobId: job.id, target, dryRun });
       });
+      return undefined;
+    }
+
+    if (url.pathname === `${ROUTE_PREFIX}/models` && req.method === 'GET') {
+      (async () => {
+        const llm = typeof ctx.get === 'function' ? ctx.get('llm') : undefined;
+        const defaultModel = typeof ctx.get === 'function' ? ctx.get('agentDefaultModel') : undefined;
+        const selection = defaultModel && typeof defaultModel.currentSelection === 'function'
+          ? defaultModel.currentSelection()
+          : null;
+        let providers = [];
+        try {
+          providers = llm && typeof llm.listProviders === 'function' ? llm.listProviders() : [];
+        } catch {
+          providers = [];
+        }
+        const provider = String(url.searchParams.get('provider') || (selection && selection.provider) || '');
+        let models = [];
+        if (llm && provider && typeof llm.listModels === 'function') {
+          try {
+            models = await llm.listModels(provider);
+          } catch {
+            models = [];
+          }
+        }
+        send(200, { ok: true, selection, providers, provider, models });
+      })().catch((error) => send(200, { ok: false, error: String(error && error.message ? error.message : error) }));
+      return undefined;
+    }
+
+    if (url.pathname === `${ROUTE_PREFIX}/vision` && req.method === 'POST') {
+      readJsonBody(req)
+        .then((input) => runVision(ctx, input, config))
+        .then((result) => send(200, result))
+        .catch((error) => send(200, { ok: false, error: String(error && error.message ? error.message : error) }));
       return undefined;
     }
 
@@ -621,7 +801,7 @@ export function apply(ctx, config = {}) {
   if (typeof ctx.inject === 'function') {
     ctx.inject(['webServer'], (webCtx) => {
       webCtx.effect(
-        () => webCtx.webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: createDeployHandler() }),
+        () => webCtx.webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: createDeployHandler(ctx, config) }),
         'solidworks-copilot: deploy route',
       );
     });
